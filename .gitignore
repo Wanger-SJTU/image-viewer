@@ -6,6 +6,9 @@ CLAUDE.local.md
 /viewer
 /web/dist/
 
+# Node
+web/node_modules/
+
 # Runtime data
 /storage/
 
