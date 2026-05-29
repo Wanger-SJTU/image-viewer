@@ -1,0 +1,16 @@
+# Personal Claude Code overrides
+CLAUDE.local.md
+.claude/settings.local.json
+
+# Build output
+/viewer
+/web/dist/
+
+# Runtime data
+/storage/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
