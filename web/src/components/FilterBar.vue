@@ -104,19 +104,26 @@ function clearAll() {
     <!-- Date range -->
     <div class="filter-section">
       <label class="filter-label">Date</label>
-      <input
-        type="date"
-        class="filter-select"
-        :value="filter.captured_after || ''"
-        @input="updateFilter({ captured_after: ($event.target as HTMLInputElement).value || undefined })"
-      />
-      <input
-        type="date"
-        class="filter-select"
-        style="margin-top:4px"
-        :value="filter.captured_before || ''"
-        @input="updateFilter({ captured_before: ($event.target as HTMLInputElement).value || undefined })"
-      />
+      <div class="date-row">
+        <span class="date-hint">From</span>
+        <input
+          type="date"
+          class="filter-select"
+          :value="filter.captured_after || ''"
+          :max="filter.captured_before || undefined"
+          @input="updateFilter({ captured_after: ($event.target as HTMLInputElement).value || undefined })"
+        />
+      </div>
+      <div class="date-row">
+        <span class="date-hint">To</span>
+        <input
+          type="date"
+          class="filter-select"
+          :value="filter.captured_before || ''"
+          :min="filter.captured_after || undefined"
+          @input="updateFilter({ captured_before: ($event.target as HTMLInputElement).value || undefined })"
+        />
+      </div>
     </div>
 
     <!-- Focal length -->
@@ -262,6 +269,19 @@ function toNum(v: string): number | undefined {
   color: #888;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.date-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.date-hint {
+  font-size: 0.7rem;
+  color: #666;
+  width: 28px;
+  flex-shrink: 0;
 }
 
 .filter-select {
