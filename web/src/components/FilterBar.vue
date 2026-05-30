@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import type { AssetFilter } from '../types/filter'
 import type { FilterOptions } from '../types/api'
 import { getFilterOptions } from '../api/assets'
+import DateRangePicker from './DateRangePicker.vue'
 
 const props = defineProps<{
   filter: AssetFilter
@@ -104,26 +105,11 @@ function clearAll() {
     <!-- Date range -->
     <div class="filter-section">
       <label class="filter-label">Date</label>
-      <div class="date-row">
-        <span class="date-hint">From</span>
-        <input
-          type="date"
-          class="filter-select"
-          :value="filter.captured_after || ''"
-          :max="filter.captured_before || undefined"
-          @input="updateFilter({ captured_after: ($event.target as HTMLInputElement).value || undefined })"
-        />
-      </div>
-      <div class="date-row">
-        <span class="date-hint">To</span>
-        <input
-          type="date"
-          class="filter-select"
-          :value="filter.captured_before || ''"
-          :min="filter.captured_after || undefined"
-          @input="updateFilter({ captured_before: ($event.target as HTMLInputElement).value || undefined })"
-        />
-      </div>
+      <DateRangePicker
+        :date-after="filter.captured_after"
+        :date-before="filter.captured_before"
+        @update="(range) => updateFilter(range)"
+      />
     </div>
 
     <!-- Focal length -->
