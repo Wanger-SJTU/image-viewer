@@ -91,7 +91,7 @@ func (s *ThumbService) GenerateThumb(ctx context.Context, asset *types.Asset, si
 	}
 
 	// Determine target size
-	targetSize := 200
+	targetSize := 400
 	if size == ThumbFull {
 		targetSize = 2048
 	}
