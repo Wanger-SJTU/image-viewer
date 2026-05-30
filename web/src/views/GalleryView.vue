@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import type { Asset } from '../types/asset'
 import { useAssetStore } from '../stores/assets'
 import { useKeyboardShortcut } from '../composables/useKeyboardShortcut'
@@ -7,6 +7,8 @@ import { clearAssets, getAsset } from '../api/assets'
 import FilterBar from '../components/FilterBar.vue'
 import ImageGrid from '../components/ImageGrid.vue'
 import ImagePreview from '../components/ImagePreview.vue'
+import RatingStars from '../components/RatingStars.vue'
+import ColorLabel from '../components/ColorLabel.vue'
 import ScanDialog from '../components/ScanDialog.vue'
 import { useI18n } from '../i18n'
 
@@ -18,6 +20,65 @@ const previewIndex = ref(-1)
 const scanDialog = ref<InstanceType<typeof ScanDialog>>()
 const viewMode = ref<'preview' | 'review'>('preview')
 const reviewIndex = ref(0)
+const reviewScale = ref(1)
+const reviewRotation = ref(0)
+const reviewFitScreen = ref(true)
+
+function reviewZoomIn() {
+  reviewFitScreen.value = false
+  reviewScale.value = Math.min(reviewScale.value * 1.25, 8)
+}
+
+function reviewZoomOut() {
+  reviewFitScreen.value = false
+  reviewScale.value = Math.max(reviewScale.value / 1.25, 0.1)
+}
+
+function reviewRotate() {
+  reviewRotation.value = (reviewRotation.value + 90) % 360
+}
+
+function reviewReset() {
+  reviewScale.value = 1
+  reviewRotation.value = 0
+  reviewFitScreen.value = true
+}
+
+function reviewToggleFit() {
+  reviewFitScreen.value = !reviewFitScreen.value
+  if (reviewFitScreen.value) {
+    reviewScale.value = 1
+  }
+}
+
+function onReviewWheel(e: WheelEvent) {
+  e.preventDefault()
+  if (e.deltaY < 0) reviewZoomIn()
+  else reviewZoomOut()
+}
+
+const reviewAsset = computed(() => assetStore.assets[reviewIndex.value] || null)
+
+const reviewExif = computed(() => {
+  const mf = reviewAsset.value?.jpg_file || reviewAsset.value?.raw_file
+  return mf?.exif || null
+})
+
+function imgStyle(): Record<string, string> {
+  const t: string[] = []
+  if (reviewRotation.value !== 0) t.push(`rotate(${reviewRotation.value}deg)`)
+  if (!reviewFitScreen.value) t.push(`scale(${reviewScale.value})`)
+  return {
+    transform: t.length > 0 ? t.join(' ') : 'none',
+    transition: 'transform 0.2s',
+    cursor: reviewScale.value > 1 ? 'grab' : 'default',
+  }
+}
+
+function reviewThumbUrl(): string {
+  if (!reviewAsset.value) return ''
+  return `/api/v1/thumbs/${reviewAsset.value.id}?size=full`
+}
 
 onMounted(() => {
   assetStore.fetchAssets()
@@ -97,6 +158,24 @@ useKeyboardShortcut(() => ({
     const a = previewAsset.value || assetStore.assets[reviewIndex.value]
     if (a) assetStore.setRating(a.id, 0)
   },
+  x: () => {
+    if (viewMode.value === 'review') {
+      const a = assetStore.assets[reviewIndex.value]
+      if (a) assetStore.setLabel(a.id, a.color_label === 'red' ? '' : 'red')
+    }
+  },
+  f: () => {
+    if (viewMode.value === 'review') reviewToggleFit()
+  },
+  r: () => {
+    if (viewMode.value === 'review') reviewRotate()
+  },
+  '+': () => {
+    if (viewMode.value === 'review') reviewZoomIn()
+  },
+  '-': () => {
+    if (viewMode.value === 'review') reviewZoomOut()
+  },
   ArrowLeft: () => {
     if (viewMode.value === 'review') reviewPrev()
     else goPrev()
@@ -174,15 +253,51 @@ function openScan() {
           <div class="review-nav review-prev" @click="reviewPrev">
             <span>&lsaquo;</span>
           </div>
-          <div class="review-main">
-            <img
-              :key="assetStore.assets[reviewIndex]?.id"
-              :src="'/api/v1/thumbs/' + assetStore.assets[reviewIndex]?.id + '?size=full'"
-              :alt="assetStore.assets[reviewIndex]?.name"
-            />
-            <div class="review-info-bar">
-              <span class="review-filename">{{ assetStore.assets[reviewIndex]?.name }}</span>
+          <div class="review-main" @wheel="onReviewWheel">
+            <div class="review-top-bar">
+              <span class="review-filename">{{ reviewAsset?.name }}</span>
               <span class="review-index">{{ reviewIndex + 1 }} / {{ assetStore.assets.length }}</span>
+              <div class="review-controls">
+                <button title="Zoom out" @click="reviewZoomOut">&minus;</button>
+                <span class="zoom-pct">{{ Math.round(reviewScale * 100) }}%</span>
+                <button title="Zoom in" @click="reviewZoomIn">+</button>
+                <button title="Rotate" @click="reviewRotate">&#8635;</button>
+                <button :title="reviewFitScreen ? '1:1' : 'Fit'" @click="reviewToggleFit">
+                  {{ reviewFitScreen ? '1:1' : 'Fit' }}
+                </button>
+                <button title="Reset" @click="reviewReset">Reset</button>
+              </div>
+            </div>
+            <div class="review-image-wrap">
+              <img
+                :key="reviewAsset?.id"
+                :src="reviewThumbUrl()"
+                :alt="reviewAsset?.name"
+                :style="imgStyle()"
+                class="review-img"
+              />
+            </div>
+            <div class="review-info-bar">
+              <div class="review-info-left">
+                <span v-if="reviewExif?.camera_model" class="exif-tag">{{ reviewExif.camera_model }}</span>
+                <span v-if="reviewExif?.focal_length" class="exif-tag">{{ reviewExif.focal_length }}mm</span>
+                <span v-if="reviewExif?.aperture" class="exif-tag">f/{{ reviewExif.aperture }}</span>
+                <span v-if="reviewExif?.iso" class="exif-tag">ISO {{ reviewExif.iso }}</span>
+                <span v-if="reviewExif?.shutter_speed" class="exif-tag">{{ reviewExif.shutter_speed }}</span>
+                <span v-if="reviewExif?.captured_at" class="exif-tag">{{ reviewExif.captured_at }}</span>
+              </div>
+              <div class="review-info-right">
+                <RatingStars v-if="reviewAsset" :rating="reviewAsset.rating" @rate="(r: number) => assetStore.setRating(reviewAsset!.id, r)" />
+                <ColorLabel v-if="reviewAsset" :color-label="reviewAsset.color_label" @select="(l: string) => assetStore.setLabel(reviewAsset!.id, l)" />
+              </div>
+            </div>
+            <div class="review-key-hints">
+              <span>1-5 Rate</span>
+              <span>0 Zero</span>
+              <span>X Reject</span>
+              <span>R Rotate</span>
+              <span>+/- Zoom</span>
+              <span>F Fit</span>
             </div>
           </div>
           <div class="review-nav review-next" @click="reviewNext">
@@ -335,8 +450,7 @@ function openScan() {
 /* Review mode */
 .review-mode {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: stretch;
   height: 100%;
   gap: 0;
 }
@@ -344,7 +458,6 @@ function openScan() {
 .review-nav {
   flex-shrink: 0;
   width: 60px;
-  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -364,39 +477,128 @@ function openScan() {
   flex: 1;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  max-height: 100%;
-  padding: 16px;
+  overflow: hidden;
 }
 
-.review-main img {
+/* Top bar with filename + controls */
+.review-top-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 16px;
+  background: #16213e;
+  border-bottom: 1px solid #0f3460;
+  flex-shrink: 0;
+}
+
+.review-top-bar .review-filename {
+  color: #ccc;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.review-top-bar .review-index {
+  color: #666;
+  font-size: 0.8rem;
+}
+
+.review-controls {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.review-controls button {
+  padding: 2px 8px;
+  background: #1a1a2e;
+  color: #999;
+  border: 1px solid #0f3460;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  min-width: 28px;
+}
+
+.review-controls button:hover {
+  border-color: #e94560;
+  color: #ccc;
+}
+
+.zoom-pct {
+  color: #888;
+  font-size: 0.7rem;
+  min-width: 36px;
+  text-align: center;
+}
+
+/* Image area */
+.review-image-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 8px;
+}
+
+.review-img {
   max-width: 100%;
-  max-height: calc(100vh - 120px);
+  max-height: 100%;
   object-fit: contain;
   border-radius: 4px;
 }
 
+/* Info bar: EXIF + rating */
 .review-info-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  width: 100%;
-  max-width: 800px;
-  margin-top: 12px;
   padding: 8px 16px;
   background: #16213e;
-  border-radius: 4px;
+  border-top: 1px solid #0f3460;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-.review-filename {
-  color: #ccc;
-  font-size: 0.9rem;
+.review-info-left {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
-.review-index {
-  color: #888;
-  font-size: 0.85rem;
+.exif-tag {
+  color: #999;
+  font-size: 0.78rem;
+  padding: 2px 6px;
+  background: #1a1a2e;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.review-info-right {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+/* Keyboard hints */
+.review-key-hints {
+  display: flex;
+  gap: 12px;
+  padding: 4px 16px;
+  background: #0d1b2a;
+  border-top: 1px solid #0f3460;
+  flex-shrink: 0;
+  justify-content: center;
+}
+
+.review-key-hints span {
+  color: #444;
+  font-size: 0.65rem;
+  text-transform: uppercase;
 }
 
 .review-empty {
