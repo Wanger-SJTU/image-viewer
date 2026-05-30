@@ -22,8 +22,8 @@ func Load() *Config {
 		DBPath:           "storage/viewer.db",
 		CacheDir:         "storage/cache",
 		ConcurrencyLimit: 4,
-		SupportedRawExts: []string{".CR3", ".ARW", ".NEF", ".CR2", ".DNG"},
-		SupportedJpgExts: []string{".JPG", ".JPEG", ".jpg", ".jpeg"},
+		SupportedRawExts: []string{".cr3", ".arw", ".nef", ".cr2", ".dng"},
+		SupportedJpgExts: []string{".jpg", ".jpeg"},
 	}
 
 	if port := os.Getenv("VIEWER_PORT"); port != "" {

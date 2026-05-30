@@ -31,19 +31,19 @@ func NewRouter(
 		api.GET("/assets/:id", h.GetAsset)
 		api.POST("/assets/:id/rate", h.RateAsset)
 		api.POST("/assets/:id/label", h.LabelAsset)
+		api.DELETE("/assets", h.ClearAssets)
 		api.DELETE("/assets/:id", h.DeleteAsset)
 
 		api.GET("/thumbs/:id", h.GetThumb)
 
+		api.GET("/filters", h.GetFilterOptions)
+
 		api.POST("/scan", h.StartScan)
 	}
 
-	// Serve embedded frontend if available
+	// Serve embedded frontend if available (already Sub'd by caller)
 	if webDist != nil {
-		distFS, _ := fs.Sub(webDist, "web/dist")
-		if distFS != nil {
-			r.NoRoute(gin.WrapH(http.FileServer(http.FS(distFS))))
-		}
+		r.NoRoute(gin.WrapH(http.FileServer(http.FS(webDist))))
 	}
 
 	return r

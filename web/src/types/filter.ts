@@ -3,6 +3,7 @@ export interface AssetFilter {
   color_label?: string
   camera_model?: string
   match_status?: string
+  file_type?: string
   focal_length_min?: number
   focal_length_max?: number
   aperture_min?: number

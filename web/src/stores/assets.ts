@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import type { Asset } from '../types/asset'
 import type { AssetFilter } from '../types/filter'
 import { listAssets, getAsset, rateAsset, labelAsset, deleteAsset } from '../api/assets'
@@ -10,15 +10,11 @@ export const useAssetStore = defineStore('assets', () => {
   const filter = ref<AssetFilter>({})
   const loading = ref(false)
   const total = ref(0)
-  const page = ref(1)
-  const limit = ref(50)
-
-  const totalPages = computed(() => Math.ceil(total.value / limit.value))
 
   async function fetchAssets() {
     loading.value = true
     try {
-      const result = await listAssets(filter.value, page.value, limit.value)
+      const result = await listAssets(filter.value, 1, 10000)
       assets.value = result.data
       total.value = result.meta.total
     } finally {
@@ -60,12 +56,6 @@ export const useAssetStore = defineStore('assets', () => {
 
   function updateFilter(newFilter: Partial<AssetFilter>) {
     filter.value = { ...filter.value, ...newFilter }
-    page.value = 1
-    fetchAssets()
-  }
-
-  function setPage(p: number) {
-    page.value = p
     fetchAssets()
   }
 
@@ -75,15 +65,11 @@ export const useAssetStore = defineStore('assets', () => {
     filter,
     loading,
     total,
-    page,
-    limit,
-    totalPages,
     fetchAssets,
     fetchAsset,
     setRating,
     setLabel,
     removeAsset,
     updateFilter,
-    setPage,
   }
 })

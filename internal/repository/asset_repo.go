@@ -19,7 +19,10 @@ type AssetRepository interface {
 	UpdateColorLabel(ctx context.Context, id int64, label string) error
 	UpdateThumbnails(ctx context.Context, id int64, gridThumb, fullThumb string) error
 	Delete(ctx context.Context, id int64) ([]string, error) // returns file paths to clean up
+	DeleteAll(ctx context.Context) (int64, error)            // returns count of deleted assets
 	ExistsByDirName(ctx context.Context, dirPath, name string) (bool, int64, error)
+	FindAllIDs(ctx context.Context) ([]int64, error)
+	GetFilterOptions(ctx context.Context) (*types.FilterOptions, error)
 }
 
 type assetRepo struct {
@@ -234,6 +237,16 @@ func (r *assetRepo) List(ctx context.Context, filter *types.AssetFilter, page, l
 			conditions = append(conditions, "a.match_status = ?")
 			args = append(args, filter.MatchStatus)
 		}
+		if filter.FileType != "" {
+			switch filter.FileType {
+			case "jpg":
+				conditions = append(conditions, "a.id IN (SELECT asset_id FROM media_files WHERE media_type = 'jpg') AND a.id NOT IN (SELECT asset_id FROM media_files WHERE media_type = 'raw')")
+			case "raw":
+				conditions = append(conditions, "a.id IN (SELECT asset_id FROM media_files WHERE media_type = 'raw') AND a.id NOT IN (SELECT asset_id FROM media_files WHERE media_type = 'jpg')")
+			case "both":
+				conditions = append(conditions, "a.match_status = 'paired'")
+			}
+		}
 		if filter.CameraModel != "" {
 			conditions = append(conditions, "a.id IN (SELECT asset_id FROM media_files WHERE camera_model LIKE ?)")
 			args = append(args, "%"+filter.CameraModel+"%")
@@ -292,7 +305,9 @@ func (r *assetRepo) List(ctx context.Context, filter *types.AssetFilter, page, l
 	offset := (page - 1) * limit
 	query := fmt.Sprintf(`
 		SELECT a.id, a.name, a.dir_path, a.match_status, a.rating, a.color_label,
-			a.ai_status, a.grid_thumb, a.full_thumb, a.captured_at, a.created_at, a.updated_at
+			a.ai_status, a.grid_thumb, a.full_thumb, a.captured_at, a.created_at, a.updated_at,
+			(SELECT COUNT(*) FROM media_files m WHERE m.asset_id = a.id AND m.media_type = 'raw') AS has_raw,
+			(SELECT COUNT(*) FROM media_files m WHERE m.asset_id = a.id AND m.media_type = 'jpg') AS has_jpg
 		FROM assets a %s ORDER BY a.captured_at DESC, a.name ASC LIMIT ? OFFSET ?`, whereClause)
 	queryArgs := append(args, limit, offset)
 
@@ -306,14 +321,22 @@ func (r *assetRepo) List(ctx context.Context, filter *types.AssetFilter, page, l
 	for rows.Next() {
 		a := &types.Asset{}
 		var capturedAt sql.NullString
+		var hasRaw, hasJpg int
 		err := rows.Scan(&a.ID, &a.Name, &a.DirPath, &a.MatchStatus, &a.Rating, &a.ColorLabel,
-			&a.AiStatus, &a.GridThumb, &a.FullThumb, &capturedAt, &a.CreatedAt, &a.UpdatedAt)
+			&a.AiStatus, &a.GridThumb, &a.FullThumb, &capturedAt, &a.CreatedAt, &a.UpdatedAt,
+			&hasRaw, &hasJpg)
 		if err != nil {
 			return nil, 0, fmt.Errorf("scan asset: %w", err)
 		}
 		if capturedAt.Valid {
 			t, _ := time.Parse(time.RFC3339, capturedAt.String)
 			a.CapturedAt = &t
+		}
+		if hasRaw > 0 {
+			a.RawFile = &types.MediaFile{}
+		}
+		if hasJpg > 0 {
+			a.JpgFile = &types.MediaFile{}
 		}
 		assets = append(assets, a)
 	}
@@ -371,6 +394,19 @@ func (r *assetRepo) Delete(ctx context.Context, id int64) ([]string, error) {
 	return paths, nil
 }
 
+func (r *assetRepo) DeleteAll(ctx context.Context) (int64, error) {
+	var count int64
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM assets`).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count assets: %w", err)
+	}
+	_, err = r.db.ExecContext(ctx, `DELETE FROM assets`)
+	if err != nil {
+		return 0, fmt.Errorf("delete all: %w", err)
+	}
+	return count, nil
+}
+
 // ExistsByDirName checks if an asset already exists for the given directory and base name.
 func (r *assetRepo) ExistsByDirName(ctx context.Context, dirPath, name string) (bool, int64, error) {
 	var id int64
@@ -382,6 +418,82 @@ func (r *assetRepo) ExistsByDirName(ctx context.Context, dirPath, name string) (
 		return false, 0, err
 	}
 	return true, id, nil
+}
+
+func (r *assetRepo) FindAllIDs(ctx context.Context) ([]int64, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id FROM assets ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// GetFilterOptions returns distinct values for filter dropdowns.
+func (r *assetRepo) GetFilterOptions(ctx context.Context) (*types.FilterOptions, error) {
+	opts := &types.FilterOptions{
+		ColorLabels: []string{"red", "orange", "yellow", "green", "blue", "purple"},
+		FileTypes:   []string{"jpg", "raw", "both"},
+	}
+
+	// Camera models
+	rows, err := r.db.QueryContext(ctx, `SELECT DISTINCT camera_model FROM media_files WHERE camera_model != '' ORDER BY camera_model`)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var s string
+			if rows.Scan(&s) == nil {
+				opts.CameraModels = append(opts.CameraModels, s)
+			}
+		}
+	}
+
+	// Focal lengths (distinct, sorted)
+	rows2, err := r.db.QueryContext(ctx, `SELECT DISTINCT focal_length FROM media_files WHERE focal_length > 0 ORDER BY focal_length`)
+	if err == nil {
+		defer rows2.Close()
+		for rows2.Next() {
+			var v float64
+			if rows2.Scan(&v) == nil {
+				opts.FocalLengths = append(opts.FocalLengths, v)
+			}
+		}
+	}
+
+	// Apertures (distinct, sorted)
+	rows3, err := r.db.QueryContext(ctx, `SELECT DISTINCT aperture FROM media_files WHERE aperture > 0 ORDER BY aperture`)
+	if err == nil {
+		defer rows3.Close()
+		for rows3.Next() {
+			var v float64
+			if rows3.Scan(&v) == nil {
+				opts.Apertures = append(opts.Apertures, v)
+			}
+		}
+	}
+
+	// ISOs (distinct, sorted)
+	rows4, err := r.db.QueryContext(ctx, `SELECT DISTINCT iso FROM media_files WHERE iso > 0 ORDER BY iso`)
+	if err == nil {
+		defer rows4.Close()
+		for rows4.Next() {
+			var v int
+			if rows4.Scan(&v) == nil {
+				opts.ISOs = append(opts.ISOs, v)
+			}
+		}
+	}
+
+	return opts, nil
 }
 
 // ensure interface satisfaction

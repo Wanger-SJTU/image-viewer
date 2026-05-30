@@ -9,6 +9,7 @@ type AssetFilter struct {
 	ColorLabel     string    `json:"color_label"`
 	CameraModel    string    `json:"camera_model"`
 	MatchStatus    string    `json:"match_status"`
+	FileType       string    `json:"file_type"` // "jpg", "raw", "both"
 	FocalLengthMin float64   `json:"focal_length_min"`
 	FocalLengthMax float64   `json:"focal_length_max"`
 	ApertureMin    float64   `json:"aperture_min"`

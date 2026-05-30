@@ -19,8 +19,8 @@ func (p *PaginatedRequest) DefaultLimit() int {
 	switch {
 	case p.Limit <= 0:
 		return 50
-	case p.Limit > 200:
-		return 200
+	case p.Limit > 10000:
+		return 10000
 	default:
 		return p.Limit
 	}
@@ -59,4 +59,14 @@ type RateRequest struct {
 // LabelRequest is the request body for setting an asset color label.
 type LabelRequest struct {
 	ColorLabel string `json:"color_label"`
+}
+
+// FilterOptions holds the available filter values from the database.
+type FilterOptions struct {
+	CameraModels  []string  `json:"camera_models"`
+	FocalLengths  []float64 `json:"focal_lengths"`
+	Apertures     []float64 `json:"apertures"`
+	ISOs          []int     `json:"isos"`
+	ColorLabels   []string  `json:"color_labels"`
+	FileTypes     []string  `json:"file_types"`
 }

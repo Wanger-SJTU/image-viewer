@@ -1,38 +1,65 @@
-# TODO - Image Viewer
+# TODO — Image Viewer
 
-## 待实现功能
+## Completed Features
 
-### 1. DELETE /api/v1/assets/:id - 删除资产 ✅
-**状态**: 已完成
+### Scanning & Matching
+- [x] Concurrent WalkDir + bounded worker pool
+- [x] Dual-track matching (dir+basename) — RAW ↔ JPG pairing
+- [x] Time-based matching — cross-directory pairing via EXIF capture time
+- [x] Scan progress reporting (phases: scanning → matching → exif → saving → done)
 
-### 2. 改进批量插入逻辑 ✅
-**状态**: 已完成
+### EXIF Extraction
+- [x] Full EXIF metadata: camera model, lens, focal length, aperture, shutter speed, ISO
+- [x] Image dimensions, orientation, capture time
+- [x] Bounded concurrent extraction (configurable concurrency limit)
+- [x] EXIF stored in `media_files` table, `captured_at` propagated to `assets`
 
-### 3. 提取 EXIF 获取尺寸 ✅
-**状态**: 已完成
+### Thumbnails
+- [x] Dual-layer cache: grid (200px) + full (2048px)
+- [x] CGO/libjpeg-turbo decoder with DCT-domain scaling (handles Sony JPEGs)
+- [x] RAW embedded JPEG extraction (ARW) — iterates all SOI/EOI pairs, picks largest valid
+- [x] On-demand generation + pre-generation after scan
+- [x] Bilinear resize (pure stdlib)
 
-### 4. 提取 EXIF 元数据 ✅
-**状态**: 已完成
+### API
+- [x] Full REST API: CRUD, rating, labeling, thumbnail serving, scan trigger
+- [x] 12 filter parameters: rating, color_label, camera_model, file_type, focal_length range, aperture range, ISO range, date range, search
+- [x] Pagination with metadata
+- [x] Auto-port switching (up to 10 attempts)
 
-### 5. RAW 预览图提取 (ARW) ✅
-**状态**: 部分完成 - 已实现 Sony ARW 格式
-**文件**: `internal/service/raw_preview.go`
-**详情**: 从 ARW 文件的 TIFF 结构中提取内嵌 JPEG 预览图
-**待扩展**: CR3, CR2, NEF 等格式
+### Frontend
+- [x] Vue 3 Composition API + Pinia + TypeScript
+- [x] Image grid with file type badges (JPG/RAW/RAW+JPG)
+- [x] Image preview overlay with EXIF info display + rating + labeling
+- [x] Comprehensive FilterBar: search, rating, date range, focal length, aperture, ISO, camera, file type
+- [x] Keyboard shortcuts (1-5 rate, arrows navigate, Esc close, Delete)
+- [x] Clear All with confirmation
+- [x] Scan dialog
 
-### 6. 图片缩放功能 ✅
-**状态**: 已完成
+### Build & Deployment
+- [x] go:embed single binary (frontend + backend)
+- [x] build.sh script
 
-### 7. WebP 编码保存
-**状态**: 当前使用 JPEG 编码（质量 85）
+## Pending
 
-## 实现进度
+### RAW Format Support
+- [ ] CR2 (Canon), CR3 (Canon), NEF (Nikon) embedded JPEG extraction
+- [ ] ARW full-resolution JPEG extraction (currently picks largest valid, could prefer specific IFD)
 
-- [ ] 1. DELETE 端点实现
-- [ ] 2. 批量插入优化
-- [ ] 3. EXIF 尺寸提取
-- [ ] 4. EXIF 元数据提取
-- [ ] 5. RAW 预览图提取 (ARW)
-- [ ] 6. 图片缩放
-- [ ] 7. 图片编码 (JPEG)
+### Thumbnails
+- [ ] WebP encoding (currently JPEG quality 85)
+- [ ] Cache eviction / size management
 
+### Frontend
+- [ ] Virtual scrolling (@tanstack/vue-virtual) for 10k+ libraries
+- [ ] Color label filter UI
+- [ ] Masonry / waterfall layout
+
+### AI Extension (future)
+- [ ] AI status field on assets (reserved in DB)
+- [ ] Plugin interface for image quality assessment, closed-eye detection, etc.
+
+### Operations
+- [ ] SSE / WebSocket for real-time scan progress
+- [ ] Configurable cache directory outside storage/
+- [ ] Image deletion also removes source file (opt-in)

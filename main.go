@@ -2,10 +2,12 @@ package main
 
 import (
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
+	"syscall"
 
 	"image-viewer/internal/config"
 	"image-viewer/internal/repository"
@@ -51,9 +53,30 @@ func main() {
 	// Setup router
 	router := httptransport.NewRouter(assetSvc, scannerSvc, thumbSvc, distFS)
 
-	addr := fmt.Sprintf(":%d", cfg.Port)
-	log.Printf("Listening on http://localhost%s", addr)
-	if err := http.ListenAndServe(addr, router); err != nil {
-		log.Fatalf("Server error: %v", err)
+	// Try ports starting from cfg.Port, auto-increment if bind fails
+	port := cfg.Port
+	const maxAttempts = 10
+	var lnErr error
+	for attempts := 0; attempts < maxAttempts; attempts++ {
+		addr := fmt.Sprintf(":%d", port)
+		log.Printf("Listening on http://localhost%s", addr)
+		if lnErr = http.ListenAndServe(addr, router); lnErr != nil {
+			if isAddrInUse(lnErr) && attempts < maxAttempts-1 {
+				log.Printf("Port %d is in use, trying port %d...", port, port+1)
+				port++
+				continue
+			}
+			log.Fatalf("Server error: %v", lnErr)
+		}
+		break
 	}
+}
+
+// isAddrInUse returns true if the error indicates the address is already in use.
+func isAddrInUse(err error) bool {
+	var sysErr syscall.Errno
+	if errors.As(err, &sysErr) {
+		return sysErr == syscall.EADDRINUSE
+	}
+	return false
 }

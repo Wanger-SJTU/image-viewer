@@ -28,9 +28,25 @@ const emit = defineEmits<{
 
 <style scoped>
 .image-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 12px;
+  column-count: 4;
+  column-gap: 12px;
   padding: 12px;
+}
+
+.image-grid > * {
+  break-inside: avoid;
+  margin-bottom: 12px;
+}
+
+@media (max-width: 1200px) {
+  .image-grid { column-count: 3; }
+}
+
+@media (max-width: 768px) {
+  .image-grid { column-count: 2; }
+}
+
+@media (max-width: 480px) {
+  .image-grid { column-count: 1; }
 }
 </style>

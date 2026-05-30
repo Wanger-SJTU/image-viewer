@@ -3,6 +3,7 @@ package http
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"image-viewer/internal/service"
 	"image-viewer/shared/types"
@@ -62,7 +63,33 @@ func (h *Handler) ListAssets(c *gin.Context) {
 	filter.ColorLabel = c.Query("color_label")
 	filter.CameraModel = c.Query("camera_model")
 	filter.MatchStatus = c.Query("match_status")
+	filter.FileType = c.Query("file_type")
 	filter.Search = c.Query("search")
+
+	if v := c.Query("focal_length_min"); v != "" {
+		filter.FocalLengthMin, _ = strconv.ParseFloat(v, 64)
+	}
+	if v := c.Query("focal_length_max"); v != "" {
+		filter.FocalLengthMax, _ = strconv.ParseFloat(v, 64)
+	}
+	if v := c.Query("aperture_min"); v != "" {
+		filter.ApertureMin, _ = strconv.ParseFloat(v, 64)
+	}
+	if v := c.Query("aperture_max"); v != "" {
+		filter.ApertureMax, _ = strconv.ParseFloat(v, 64)
+	}
+	if v := c.Query("iso_min"); v != "" {
+		filter.ISOMin, _ = strconv.Atoi(v)
+	}
+	if v := c.Query("iso_max"); v != "" {
+		filter.ISOMax, _ = strconv.Atoi(v)
+	}
+	if v := c.Query("captured_after"); v != "" {
+		filter.CapturedAfter, _ = time.Parse(time.RFC3339, v)
+	}
+	if v := c.Query("captured_before"); v != "" {
+		filter.CapturedBefore, _ = time.Parse(time.RFC3339, v)
+	}
 
 	assets, total, err := h.assetSvc.List(c.Request.Context(), &filter, page, limit)
 	if err != nil {
@@ -149,4 +176,39 @@ func (h *Handler) DeleteAsset(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, types.APIResponse{Success: true, Data: gin.H{"id": id}})
+}
+
+// ClearAssets deletes all assets and clears the thumbnail cache.
+func (h *Handler) ClearAssets(c *gin.Context) {
+	count, err := h.assetSvc.ClearAll(c.Request.Context())
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Clear thumbnail cache too
+	if err := h.clearCacheDir(); err != nil {
+		respondError(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	c.JSON(http.StatusOK, types.APIResponse{
+		Success: true,
+		Data:    gin.H{"deleted": count},
+	})
+}
+
+// GetFilterOptions returns distinct values for filter dropdowns.
+func (h *Handler) GetFilterOptions(c *gin.Context) {
+	opts, err := h.assetSvc.GetFilterOptions(c.Request.Context())
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondOK(c, opts, nil)
+}
+
+// clearCacheDir removes all thumbnail cache files.
+func (h *Handler) clearCacheDir() error {
+	return h.thumbSvc.ClearCache()
 }

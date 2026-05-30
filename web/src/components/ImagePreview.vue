@@ -24,6 +24,24 @@ const exif = computed(() => {
   const mf = props.asset?.jpg_file || props.asset?.raw_file
   return mf?.exif
 })
+
+const matchLabel = computed(() => {
+  if (!props.asset) return ''
+  const hasRaw = !!props.asset.raw_file
+  const hasJpg = !!props.asset.jpg_file
+  if (hasRaw && hasJpg) return 'RAW + JPG'
+  if (hasRaw) return 'RAW'
+  if (hasJpg) return 'JPG'
+  return 'Unknown'
+})
+
+const matchClass = computed(() => {
+  if (!props.asset) return ''
+  const hasRaw = !!props.asset.raw_file
+  const hasJpg = !!props.asset.jpg_file
+  if (hasRaw && hasJpg) return 'paired'
+  return 'orphan'
+})
 </script>
 
 <template>
@@ -33,6 +51,8 @@ const exif = computed(() => {
         <button class="nav-btn prev" @click="emit('prev')">&lsaquo;</button>
         <button class="nav-btn next" @click="emit('next')">&rsaquo;</button>
         <button class="close-btn" @click="emit('close')">&times;</button>
+
+        <div class="match-badge">{{ matchLabel }}</div>
 
         <div class="preview-image">
           <img :src="thumbUrl(asset.id, 'full')" :alt="asset.name" />
@@ -120,6 +140,18 @@ const exif = computed(() => {
   color: #fff;
   font-size: 2rem;
   cursor: pointer;
+  z-index: 2;
+}
+
+.match-badge {
+  position: absolute;
+  top: -40px;
+  right: 40px;
+  padding: 4px 10px;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #fff;
   z-index: 2;
 }
 

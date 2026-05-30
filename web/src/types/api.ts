@@ -22,3 +22,12 @@ export interface RateRequest {
 export interface LabelRequest {
   color_label: string
 }
+
+export interface FilterOptions {
+  camera_models: string[]
+  focal_lengths: number[]
+  apertures: number[]
+  isos: number[]
+  color_labels: string[]
+  file_types: string[]
+}

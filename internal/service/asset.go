@@ -11,28 +11,25 @@ import (
 // AssetFilter is re-exported for service layer use.
 type AssetFilter = types.AssetFilter
 
-// AssetService handles business logic for asset CRUD, rating, and labeling.
-type AssetService struct {
-	cfg  *config.Config
-	repo interface {
-		FindByID(ctx context.Context, id int64) (*types.Asset, error)
-		List(ctx context.Context, filter *types.AssetFilter, page, limit int) ([]*types.Asset, int64, error)
-		UpdateRating(ctx context.Context, id int64, rating int) error
-		UpdateColorLabel(ctx context.Context, id int64, label string) error
-		UpdateThumbnails(ctx context.Context, id int64, gridThumb, fullThumb string) error
-		Delete(ctx context.Context, id int64) ([]string, error)
-	}
-}
-
-// NewAssetService creates a new AssetService.
-func NewAssetService(cfg *config.Config, repo interface {
+type assetRepo interface {
 	FindByID(ctx context.Context, id int64) (*types.Asset, error)
 	List(ctx context.Context, filter *types.AssetFilter, page, limit int) ([]*types.Asset, int64, error)
 	UpdateRating(ctx context.Context, id int64, rating int) error
 	UpdateColorLabel(ctx context.Context, id int64, label string) error
 	UpdateThumbnails(ctx context.Context, id int64, gridThumb, fullThumb string) error
 	Delete(ctx context.Context, id int64) ([]string, error)
-}) *AssetService {
+	DeleteAll(ctx context.Context) (int64, error)
+	GetFilterOptions(ctx context.Context) (*types.FilterOptions, error)
+}
+
+// AssetService handles business logic for asset CRUD, rating, and labeling.
+type AssetService struct {
+	cfg  *config.Config
+	repo assetRepo
+}
+
+// NewAssetService creates a new AssetService.
+func NewAssetService(cfg *config.Config, repo assetRepo) *AssetService {
 	return &AssetService{cfg: cfg, repo: repo}
 }
 
@@ -66,4 +63,14 @@ func (s *AssetService) Label(ctx context.Context, id int64, label string) error 
 func (s *AssetService) Delete(ctx context.Context, id int64) error {
 	_, err := s.repo.Delete(ctx, id)
 	return err
+}
+
+// ClearAll removes all assets from the database.
+func (s *AssetService) ClearAll(ctx context.Context) (int64, error) {
+	return s.repo.DeleteAll(ctx)
+}
+
+// GetFilterOptions returns distinct filter values for dropdown selectors.
+func (s *AssetService) GetFilterOptions(ctx context.Context) (*types.FilterOptions, error) {
+	return s.repo.GetFilterOptions(ctx)
 }

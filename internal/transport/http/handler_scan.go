@@ -1,6 +1,8 @@
 package http
 
 import (
+	"context"
+	"log"
 	"net/http"
 
 	"image-viewer/internal/service"
@@ -19,7 +21,11 @@ func (h *Handler) StartScan(c *gin.Context) {
 
 	progressCh := make(chan service.ScanProgress, 100)
 	go func() {
-		_ = h.scannerSvc.Scan(c.Request.Context(), req.Path, progressCh)
+		if err := h.scannerSvc.Scan(context.Background(), req.Path, progressCh); err != nil {
+			log.Printf("scan error: %v", err)
+		}
+		// Pre-generate grid thumbnails after scan completes
+		h.thumbSvc.PreGenerateAll(context.Background())
 	}()
 
 	// Return accepted immediately; future enhancement: SSE on /scan/progress

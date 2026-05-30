@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import type { Asset } from '../types/asset'
 import { useAssetStore } from '../stores/assets'
 import { useKeyboardShortcut } from '../composables/useKeyboardShortcut'
+import { clearAssets, getAsset } from '../api/assets'
 import FilterBar from '../components/FilterBar.vue'
 import ImageGrid from '../components/ImageGrid.vue'
 import ImagePreview from '../components/ImagePreview.vue'
@@ -17,9 +18,13 @@ onMounted(() => {
   assetStore.fetchAssets()
 })
 
-function openPreview(asset: Asset) {
+async function openPreview(asset: Asset) {
   previewIndex.value = assetStore.assets.findIndex((a) => a.id === asset.id)
-  previewAsset.value = asset
+  try {
+    previewAsset.value = await getAsset(asset.id)
+  } catch {
+    previewAsset.value = asset
+  }
 }
 
 function closePreview() {
@@ -27,17 +32,25 @@ function closePreview() {
   previewIndex.value = -1
 }
 
-function goPrev() {
+async function goPrev() {
   if (previewIndex.value > 0) {
     previewIndex.value--
-    previewAsset.value = assetStore.assets[previewIndex.value]
+    try {
+      previewAsset.value = await getAsset(assetStore.assets[previewIndex.value].id)
+    } catch {
+      previewAsset.value = assetStore.assets[previewIndex.value]
+    }
   }
 }
 
-function goNext() {
+async function goNext() {
   if (previewIndex.value < assetStore.assets.length - 1) {
     previewIndex.value++
-    previewAsset.value = assetStore.assets[previewIndex.value]
+    try {
+      previewAsset.value = await getAsset(assetStore.assets[previewIndex.value].id)
+    } catch {
+      previewAsset.value = assetStore.assets[previewIndex.value]
+    }
   }
 }
 
@@ -59,6 +72,17 @@ useKeyboardShortcut(() => ({
   },
 }))
 
+async function clearAll() {
+  if (!confirm('Delete all assets and thumbnails? This cannot be undone.')) return
+  try {
+    const count = await clearAssets()
+    alert(`Deleted ${count} assets`)
+    assetStore.fetchAssets()
+  } catch (e: any) {
+    alert('Clear failed: ' + e.message)
+  }
+}
+
 function openScan() {
   scanDialog.value?.open()
 }
@@ -69,6 +93,7 @@ function openScan() {
     <div class="gallery-toolbar">
       <div class="toolbar-left">
         <button class="scan-btn" @click="openScan">Scan</button>
+        <button class="clear-btn" @click="clearAll">Clear All</button>
         <span class="count-info" v-if="assetStore.total">
           {{ assetStore.total }} assets
         </span>
@@ -77,25 +102,12 @@ function openScan() {
         </span>
       </div>
       <div class="toolbar-right">
-        <span v-if="assetStore.totalPages > 1" class="page-info">
-          Page {{ assetStore.page }} / {{ assetStore.totalPages }}
-        </span>
-        <div class="page-btns">
-          <button
-            class="page-btn"
-            :disabled="assetStore.page <= 1"
-            @click="assetStore.setPage(assetStore.page - 1)"
-          >
-            Prev
-          </button>
-          <button
-            class="page-btn"
-            :disabled="assetStore.page >= assetStore.totalPages"
-            @click="assetStore.setPage(assetStore.page + 1)"
-          >
-            Next
-          </button>
-        </div>
+        <button
+          class="scan-btn"
+          @click="assetStore.fetchAssets()"
+        >
+          Refresh
+        </button>
       </div>
     </div>
 
@@ -171,38 +183,23 @@ function openScan() {
   background: #c73e54;
 }
 
-.count-info {
+.clear-btn {
+  padding: 4px 16px;
+  background: #555;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
   font-size: 0.85rem;
-  color: #999;
-}
-
-.page-info {
-  font-size: 0.8rem;
-  color: #888;
-}
-
-.page-btns {
-  display: flex;
-  gap: 4px;
-}
-
-.page-btn {
-  padding: 3px 10px;
-  border: 1px solid #0f3460;
-  border-radius: 3px;
-  background: #1a1a2e;
-  color: #ccc;
-  font-size: 0.8rem;
   cursor: pointer;
 }
 
-.page-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
+.clear-btn:hover {
+  background: #777;
 }
 
-.page-btn:hover:not(:disabled) {
-  border-color: #e94560;
+.count-info {
+  font-size: 0.85rem;
+  color: #999;
 }
 
 .gallery-content {

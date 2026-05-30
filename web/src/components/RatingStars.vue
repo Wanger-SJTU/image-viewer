@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { ref } from 'vue'
+
 const props = defineProps<{
   rating: number
 }>()
@@ -8,15 +10,24 @@ const emit = defineEmits<{
 }>()
 
 const stars = [1, 2, 3, 4, 5]
+const hoverRating = ref(0)
+
+function active(r: number): boolean {
+  if (hoverRating.value > 0) {
+    return r <= hoverRating.value
+  }
+  return r <= props.rating
+}
 </script>
 
 <template>
-  <div class="rating-stars">
+  <div class="rating-stars" @mouseleave="hoverRating = 0">
     <button
       v-for="star in stars"
       :key="star"
       class="star"
-      :class="{ active: star <= rating }"
+      :class="{ active: active(star) }"
+      @mouseenter="hoverRating = star"
       @click="emit('rate', star)"
     >
       &#9733;
@@ -41,11 +52,6 @@ const stars = [1, 2, 3, 4, 5]
 }
 
 .star.active {
-  color: #f4c430;
-}
-
-.star:hover,
-.star:hover ~ .star {
   color: #f4c430;
 }
 </style>

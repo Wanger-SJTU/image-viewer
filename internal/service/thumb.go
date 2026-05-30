@@ -11,7 +11,10 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/rwcarlsen/goexif/exif"
+
 	"image-viewer/internal/config"
+	"image-viewer/internal/jpegdecoder"
 	"image-viewer/shared/types"
 )
 
@@ -26,6 +29,7 @@ type ThumbService struct {
 	repo interface {
 		FindByID(ctx context.Context, id int64) (*types.Asset, error)
 		UpdateThumbnails(ctx context.Context, id int64, gridThumb, fullThumb string) error
+		FindAllIDs(ctx context.Context) ([]int64, error)
 	}
 }
 
@@ -33,6 +37,7 @@ type ThumbService struct {
 func NewThumbService(cfg *config.Config, repo interface {
 	FindByID(ctx context.Context, id int64) (*types.Asset, error)
 	UpdateThumbnails(ctx context.Context, id int64, gridThumb, fullThumb string) error
+	FindAllIDs(ctx context.Context) ([]int64, error)
 }) *ThumbService {
 	return &ThumbService{cfg: cfg, repo: repo}
 }
@@ -85,35 +90,52 @@ func (s *ThumbService) GenerateThumb(ctx context.Context, asset *types.Asset, si
 		return "", fmt.Errorf("no source file for asset %d", asset.ID)
 	}
 
-	// Open source
-	f, err := os.Open(srcPath)
-	if err != nil {
-		return "", fmt.Errorf("open source: %w", err)
-	}
-	defer f.Close()
-
-	// Decode — try standard decode, then RAW preview extraction as fallback
-	img, _, err := image.Decode(f)
-	if err != nil {
-		if asset.RawFile != nil {
-			jpegData, extractErr := ExtractEmbeddedJPEG(srcPath)
-			if extractErr != nil {
-				return "", fmt.Errorf("decode image: %w (raw extraction: %v)", err, extractErr)
-			}
-			img, _, err = image.Decode(bytes.NewReader(jpegData))
-			if err != nil {
-				return "", fmt.Errorf("decode extracted preview: %w", err)
-			}
-		} else {
-			return "", fmt.Errorf("decode image: %w", err)
-		}
-	}
-
-	// Resize
+	// Determine target size
 	targetSize := 200
 	if size == ThumbFull {
 		targetSize = 2048
 	}
+
+	// Decode using libjpeg-turbo with DCT-domain scaling for speed
+	var img image.Image
+	var err error
+	if asset.JpgFile != nil {
+		// Pick scale factor: decode just above target resolution, then bilinear down
+		scale := pickScale(srcPath, targetSize)
+		if scale > 1 {
+			img, err = jpegdecoder.DecodeFileScaled(srcPath, scale)
+		} else {
+			img, err = jpegdecoder.DecodeFile(srcPath)
+		}
+		if err != nil {
+			return "", fmt.Errorf("decode jpeg: %w", err)
+		}
+	} else if asset.RawFile != nil {
+		// RAW file: try extracting embedded JPEG preview
+		jpegData, extractErr := ExtractEmbeddedJPEG(srcPath)
+		if extractErr != nil {
+			return "", fmt.Errorf("raw preview extraction: %w", extractErr)
+		}
+		img, _, err = image.Decode(bytes.NewReader(jpegData))
+		if err != nil {
+			return "", fmt.Errorf("decode extracted preview: %w", err)
+		}
+		// Read orientation from embedded JPEG - goexif cannot parse RAW files
+		if o := readOrientation(srcPath); o > 1 {
+			img = applyOrientation(img, o)
+		}
+	} else {
+		return "", fmt.Errorf("no source file for asset %d", asset.ID)
+	}
+
+	// Apply EXIF orientation before resize (JPG only — RAW handled above)
+	if asset.JpgFile != nil {
+		if o := readOrientation(srcPath); o > 1 {
+			img = applyOrientation(img, o)
+		}
+	}
+
+	// Resize
 	resized := resizeImage(img, targetSize)
 
 	// Save to cache
@@ -236,6 +258,123 @@ func lerp(a, b, t float64) float64 {
 	return a + (b-a)*t
 }
 
+// applyOrientation transforms an image according to the EXIF orientation tag.
+// Returns the original image unchanged if orientation is 0, 1, or unrecognized.
+func applyOrientation(img image.Image, orientation int) image.Image {
+	if orientation <= 1 {
+		return img
+	}
+
+	bounds := img.Bounds()
+	w := bounds.Dx()
+	h := bounds.Dy()
+
+	var dst *image.RGBA
+
+	switch orientation {
+	case 2: // flip X
+		dst = image.NewRGBA(image.Rect(0, 0, w, h))
+		for y := 0; y < h; y++ {
+			for x := 0; x < w; x++ {
+				dst.Set(x, y, img.At(w-1-x+bounds.Min.X, y+bounds.Min.Y))
+			}
+		}
+	case 3: // rotate 180°
+		dst = image.NewRGBA(image.Rect(0, 0, w, h))
+		for y := 0; y < h; y++ {
+			for x := 0; x < w; x++ {
+				dst.Set(x, y, img.At(w-1-x+bounds.Min.X, h-1-y+bounds.Min.Y))
+			}
+		}
+	case 4: // flip Y
+		dst = image.NewRGBA(image.Rect(0, 0, w, h))
+		for y := 0; y < h; y++ {
+			for x := 0; x < w; x++ {
+				dst.Set(x, y, img.At(x+bounds.Min.X, h-1-y+bounds.Min.Y))
+			}
+		}
+	case 5: // transpose
+		dst = image.NewRGBA(image.Rect(0, 0, h, w))
+		for y := 0; y < w; y++ {
+			for x := 0; x < h; x++ {
+				dst.Set(x, y, img.At(y+bounds.Min.X, x+bounds.Min.Y))
+			}
+		}
+	case 6: // rotate 90° CW
+		dst = image.NewRGBA(image.Rect(0, 0, h, w))
+		for y := 0; y < w; y++ {
+			for x := 0; x < h; x++ {
+				dst.Set(x, y, img.At(y+bounds.Min.X, h-1-x+bounds.Min.Y))
+			}
+		}
+	case 7: // transverse
+		dst = image.NewRGBA(image.Rect(0, 0, h, w))
+		for y := 0; y < w; y++ {
+			for x := 0; x < h; x++ {
+				dst.Set(x, y, img.At(w-1-y+bounds.Min.X, h-1-x+bounds.Min.Y))
+			}
+		}
+	case 8: // rotate 90° CCW
+		dst = image.NewRGBA(image.Rect(0, 0, h, w))
+		for y := 0; y < w; y++ {
+			for x := 0; x < h; x++ {
+				dst.Set(x, y, img.At(w-1-y+bounds.Min.X, x+bounds.Min.Y))
+			}
+		}
+	default:
+		return img
+	}
+	return dst
+}
+
+// readOrientationFromBytes reads the EXIF orientation tag from JPEG bytes.
+// Returns 1 (normal) if the orientation cannot be read.
+func readOrientationFromBytes(data []byte) int {
+	x, err := exif.Decode(bytes.NewReader(data))
+	if err != nil {
+		return 1
+	}
+
+	tag, err := x.Get(exif.Orientation)
+	if err != nil {
+		return 1
+	}
+
+	v, err := tag.Int(0)
+	if err != nil {
+		return 1
+	}
+
+	return v
+}
+
+// readOrientation reads the EXIF orientation tag from a file path.
+// Returns 1 (normal) if the orientation cannot be read.
+func readOrientation(path string) int {
+	f, err := os.Open(path)
+	if err != nil {
+		return 1
+	}
+	defer f.Close()
+
+	x, err := exif.Decode(f)
+	if err != nil {
+		return 1
+	}
+
+	tag, err := x.Get(exif.Orientation)
+	if err != nil {
+		return 1
+	}
+
+	v, err := tag.Int(0)
+	if err != nil {
+		return 1
+	}
+
+	return v
+}
+
 func clamp(v, min, max float64) float64 {
 	if v < min {
 		return min
@@ -244,4 +383,65 @@ func clamp(v, min, max float64) float64 {
 		return max
 	}
 	return v
+}
+
+// ClearCache removes all cached thumbnail files.
+func (s *ThumbService) ClearCache() error {
+	entries, err := os.ReadDir(s.cfg.CacheDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	for _, entry := range entries {
+		_ = os.Remove(filepath.Join(s.cfg.CacheDir, entry.Name()))
+	}
+	return nil
+}
+
+// PreGenerateAll generates grid thumbnails for all assets that don't have them yet.
+// Runs in the background; intended to be called after a scan completes.
+func (s *ThumbService) PreGenerateAll(ctx context.Context) {
+	ids, err := s.repo.FindAllIDs(ctx)
+	if err != nil {
+		return
+	}
+
+	// Process with bounded concurrency
+	sem := make(chan struct{}, s.cfg.ConcurrencyLimit)
+	for _, id := range ids {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		sem <- struct{}{}
+		go func(assetID int64) {
+			defer func() { <-sem }()
+			// Only generate grid thumbs; full thumbs on demand
+			_, _ = s.GetThumbPath(ctx, assetID, ThumbGrid)
+		}(id)
+	}
+}
+
+// pickScale returns the best DCT scale denominator for decoding.
+// Chooses the largest scale where the output dimension still exceeds targetSize,
+// avoiding full-resolution decode when we only need a small thumbnail.
+func pickScale(path string, targetSize int) int {
+	w, h, err := jpegdecoder.ReadDimensions(path)
+	if err != nil {
+		return 1 // fallback to full decode
+	}
+	longSide := w
+	if h > w {
+		longSide = h
+	}
+	// Libjpeg supports 1/1, 1/2, 1/4, 1/8
+	for _, s := range []int{8, 4, 2} {
+		if longSide/s >= targetSize {
+			return s
+		}
+	}
+	return 1
 }

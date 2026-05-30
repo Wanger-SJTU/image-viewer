@@ -1,6 +1,6 @@
-# 架构设计规范 (v1.2)
+# Architecture — Image Viewer (v1.5)
 
-## 1. 系统架构
+## 1. System Architecture
 
 ```
 ┌─────────────────┐             ┌─────────────────┐
@@ -13,128 +13,116 @@
                          ┌───────────────┴───────────────┐
                          ▼                               ▼
               ┌─────────────────┐             ┌─────────────────┐
-              │   File System   │             │  Local Database │
-              │ (直接读取本地RAW/JPG)│             │    (SQLite 3)   │
+              │   File System   │             │     SQLite      │
+              │ (直接读取本地RAW/JPG)│             │  (viewer.db)    │
               └─────────────────┘             └─────────────────┘
                          │
                          ▼
               ┌─────────────────┐
-              │  Local .cache/  │
-              │ (二级WebP缩略图管道)│
+              │  storage/cache/  │
+              │ (200px grid +     │
+              │  2048px full)    │
               └─────────────────┘
-
 ```
 
----
-
-## 2. 目录结构设计
-
-### 2.1 Shared (类型契约)
+## 2. Project Directory Structure
 
 ```text
-shared/
-└── types/             # 核心实体（Go语言编写，前端手动或通过工具转为 TS Type）
-    └── asset.go       # 包含 Asset, MediaFile, ExifMeta 等核心结构
-
-```
-
-### 2.2 Backend (Go + Gin)
-
-遵循 Go 语言标准布局，解耦传输层（Handlers）、业务层（Services）与存储层（Repositories）。
-
-```text
-backend/
-├── cmd/
-│   └── server/
-│       └── main.go         # 主程序入口（拉起 SQLite、注册路由、绑定端口）
+image-viewer/
+├── main.go                      # Entry point + go:embed frontend
+├── go.mod / go.sum
+├── build.sh                     # Build script (frontend + backend)
+├── viewer                       # Compiled single binary
+├── cmd/viewer/main.go           # Placeholder
+├── shared/types/                # Source of truth: Asset, MediaFile, ExifMeta, Filter
+│   ├── asset.go
+│   ├── filter.go
+│   └── api.go
 ├── internal/
-│   ├── config/
-│   │   └── config.go       # 配置管理（扫描路径、缓存路径限制、支持的后缀名）
-│   ├── handlers/           # HTTP 处理器（负责解析 Gin 上下文，返回标准 JSON）
-│   ├── services/           # 核心业务逻辑（Scanner并发扫描引擎、Thumb缩略图解码器）
-│   ├── repositories/       # 💡 仓储层（负责 SQLite 读写，隔离原生 SQL 语句）
-│   └── middleware/         # 跨域控制 (CORS)、静态缓存控制
-└── storage/                # 💡 本地运行时目录（不包含用户照片）
-    ├── cache/              # 存放系统生成的 200px 和 2048px 的高频 WebP 缩略图
-    └── viewer.db           # 系统的 SQLite 单文件数据库
-
+│   ├── config/config.go         # Port, DB path, cache dir, supported extensions
+│   ├── repository/
+│   │   ├── db.go                # SQLite init + migrations (assets + media_files)
+│   │   └── asset_repo.go        # Full CRUD, dynamic filtering, pagination
+│   ├── service/
+│   │   ├── scanner.go           # WalkDir + dual-track matching + time-based matching
+│   │   ├── asset.go             # Rating, labeling, listing
+│   │   ├── thumb.go             # Two-layer thumbnail generation + cache
+│   │   ├── raw_preview.go       # ARW embedded JPEG extraction
+│   │   └── exif.go              # Full EXIF metadata extraction (goexif)
+│   ├── transport/http/
+│   │   ├── router.go            # Gin router + embedded SPA fallback
+│   │   ├── handler.go           # CRUD handlers + filter parsing
+│   │   ├── handler_scan.go      # Async scan trigger
+│   │   └── handler_thumb.go     # Thumbnail serving
+│   └── jpegdecoder/
+│       └── decoder.go           # CGO wrapper: libjpeg-turbo with DCT-domain scaling
+├── web/src/                     # Vue 3 Composition API
+│   ├── api/                     # Axios client + API functions
+│   ├── components/              # ImageCard, ImageGrid, ImagePreview, FilterBar, etc.
+│   ├── composables/             # useKeyboardShortcut
+│   ├── stores/assets.ts         # Pinia store
+│   ├── types/                   # TypeScript mirror of shared/types/
+│   └── views/GalleryView.vue    # Main gallery page
+├── storage/
+│   ├── viewer.db                # SQLite database
+│   └── cache/                   # Grid/full thumbnails
+└── docs/                        # Documentation
 ```
 
-### 2.3 Frontend (Vue 3 + Composition API)
+## 3. Core Data Flows
 
-```text
-frontend/
-├── src/
-│   ├── api/                # Axios / Fetch 封装的请求
-│   ├── components/         # 核心组件（瀑布流组件、虚拟滚动容器、大图预览浮层）
-│   ├── composables/        # 组合式函数（如 useKeyboardShortcut 快捷键打分绑定）
-│   ├── stores/             # Pinia 状态管理（当前激活的图片、过滤条件、扫描进度）
-│   ├── types/              # 映射 shared/types/ 的 TypeScript 类型声明文件
-│   └── views/              # 页面（Gallery 瀑布流主页、Folder 文件夹选择页）
+### 3.1 Asset Scanning & Dual-Track Matching
 
 ```
-
----
-
-## 3. 核心数据流设计 (Data Flow Design)
-
-系统的数据流向遵循“单向循环、缓存优先”的原则，以下是三个最高频场景的数据流转逻辑：
-
-### 3.1 资产并发扫描与双轨匹配数据流
-
-当用户在前端指定一个本地照片目录（如 `/Volumes/Photos/2026_Raw/`）并点击扫描：
-
-1. **触发扫描:** Frontend -.
-Backend">
-Frontend 提交绝对路径。Backend 验证路径有效性后，立即返回 `202 Accepted`，开启异步 Goroutine 扫描，并建立 Web-Socket 或轮询通道供前端监听进度。
-
-
-2. **并发消费与聚拢:** Backend Local.
-主线程进行 `WalkDir`，把照片路径丢进有界 Channel。多个 Worker 线程并发并发读取物理文件，通过 `shared/types.Asset` 的复合键 `DirPath + "_" + Lowercase(AssetName)` 将同名 RAW 和 JPG 聚合进同一个 Asset 实例，并标记配对状态。
-
-
-3. **批处理落库:** Backend -.
-SQLite">
-扫描结束后，将聚合好的 `[]Asset` 和 `[]MediaFile` 通过事务（Transaction）批量写入 SQLite 数据库，并对时间（CapturedAt）和评分建立索引。
-
-
-### 3.2 瀑布流高效加载数据流 (双层缓存机制)
-
-前端首次进入画廊主页，加载数万张照片的视图：
-
-```
-[前端: 触发虚拟滚动] 
-         │
-         ▼ (请求当前可视区域内的几百张资产)
-[GET /api/v1/assets?page=1&limit=50] ──► [后端: 极速查询 SQLite 索引]
-         │
-         ▼ (返回包含 Asset 核心元数据及两层缓存路径的 JSON)
-[前端: 渲染图片渲染列表] ──► `<img src="/api/v1/thumbs/:id?size=grid" />`
-         │
-         ▼ 
-[后端: 命中缓存检查] 
-    ├── 1. 如果 storage/cache/ 存在对应的 200px WebP -> 毫秒级直接返回
-    └── 2. 如果不存在 -> 丢入后台线程池异步提取 RAW 内嵌预览图，生成 WebP 写入缓存并返回
-
+WalkDir → Collect entries (RAW + JPG ext filter)
+  → First pass: match by DirPath + Lowercase(BaseName)
+  → Second pass: match orphan RAW/JPG by EXIF capture time
+  → Extract full EXIF for all media files (bounded concurrency)
+  → Propagate captured_at to asset
+  → Batch insert via SQLite transaction (500/batch)
 ```
 
-### 3.3 快捷键分级评分数据流
+Matching key for first pass: `DirPath + Lowercase(BaseName)`
+Matching key for second pass: `EXIF DateTimeOriginal.UTC().Round(1s)`
 
-用户在前端全屏查看照片，按下数字键 `5`（打 5 星）：
-
-```
-[前端: 监听键盘事件] ──► 触发 `useKeyboardShortcut` ──► 内存变更当前图片状态
-         │
-         ▼ (发送异步轻量请求)
-[POST /api/v1/assets/:id/rate  { "rating": 5 }]
-         │
-         ▼ 
-[后端 Handlers] ──► 调用 [Services] ──► 调用 [Repositories]
-         │
-         ▼ (执行高效局部更新 SQL)
-[UPDATE assets SET rating = 5 WHERE id = :id;] ──► 写入 SQLite (毫秒级成功)
-         │
-         ▼ 
-[后端返回 200 OK] ──► 前端 UI 无缝保持高亮，不触发整页刷新
+### 3.2 Thumbnail Cache Pipeline
 
 ```
+Request: GET /thumbs/:id?size=grid|full
+  → Check asset.GridThumb / FullThumb in DB
+  → Check file exists on disk (storage/cache/)
+  → If missing: generate on-demand
+    - JPG: libjpeg-turbo DCT-domain scaling → bilinear resize → JPEG encode
+    - RAW: extract largest valid embedded JPEG → bilinear resize → JPEG encode
+    - Save to storage/cache/{id}_{size}.jpg
+    - Update DB with cache path
+  → Serve file
+```
+
+Cache layers:
+- Grid: 200px on long side
+- Full: 2048px on long side
+
+### 3.3 Filtering Pipeline
+
+```
+Frontend FilterBar → emits Partial<AssetFilter>
+  → Pinia store updates filter
+  → listAssets(filter, page, limit) → GET /assets?params...
+  → Handler parses all query params → AssetFilter struct
+  → Repository builds dynamic SQL WHERE from non-zero filter fields
+  → Returns paginated results with metadata
+```
+
+Supported filters: rating, color_label, camera_model, file_type (jpg/raw/both),
+focal_length_min/max, aperture_min/max, iso_min/max, captured_after/before, search
+
+## 4. Key Technical Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| CGO + libjpeg-turbo | Go stdlib fails on many Sony JPEGs; libjpeg-turbo handles them + DCT scaling |
+| Time-based matching | RAW/JPG in different directories (full-width period in path) need EXIF-based pairing |
+| Bounded concurrency | Worker pool via buffered channel prevents I/O overload during scan + EXIF extraction |
+| Auto-port switching | Detects EADDRINUSE and increments port up to 10 times |
+| go:embed single binary | Entire Vue 3 frontend embedded in Go binary; no Node.js at runtime |

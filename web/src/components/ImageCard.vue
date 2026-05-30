@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { Asset } from '../types/asset'
 import RatingStars from './RatingStars.vue'
 import ColorLabel from './ColorLabel.vue'
@@ -16,22 +17,27 @@ const emit = defineEmits<{
 function thumbUrl(id: number, size: string): string {
   return `/api/v1/thumbs/${id}?size=${size}`
 }
+
+const matchLabel = computed(() => {
+  const hasRaw = !!props.asset.raw_file
+  const hasJpg = !!props.asset.jpg_file
+  if (hasRaw && hasJpg) return 'RAW + JPG'
+  if (hasRaw) return 'RAW'
+  if (hasJpg) return 'JPG'
+  return ''
+})
 </script>
 
 <template>
   <div class="image-card" @click="emit('select', asset)">
     <div class="card-image">
       <img
-        v-if="asset.grid_thumb"
         :src="thumbUrl(asset.id, 'grid')"
         :alt="asset.name"
         loading="lazy"
       />
-      <div v-else class="no-thumb">?</div>
       <div class="card-overlay">
-        <span class="match-badge" :class="asset.match_status">
-          {{ asset.match_status === 'paired' ? 'RAW+JPG' : 'ORPHAN' }}
-        </span>
+        <span class="match-badge">{{ matchLabel }}</span>
       </div>
     </div>
     <div class="card-info">
@@ -58,18 +64,14 @@ function thumbUrl(id: number, size: string): string {
 
 .card-image {
   position: relative;
-  aspect-ratio: 3/2;
   background: #0f3460;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   overflow: hidden;
 }
 
 .card-image img {
   width: 100%;
-  height: 100%;
-  object-fit: cover;
+  height: auto;
+  display: block;
 }
 
 .no-thumb {
@@ -89,15 +91,6 @@ function thumbUrl(id: number, size: string): string {
   padding: 2px 6px;
   border-radius: 3px;
   font-weight: 600;
-}
-
-.match-badge.paired {
-  background: #2e7d32;
-  color: #fff;
-}
-
-.match-badge.orphan {
-  background: #e65100;
   color: #fff;
 }
 

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"image-viewer/internal/config"
 	"image-viewer/shared/types"
@@ -26,6 +27,7 @@ type ScanProgress struct {
 const (
 	PhaseScanning = "scanning"
 	PhaseMatching = "matching"
+	PhaseExif     = "exif"
 	PhaseSaving   = "saving"
 	PhaseDone     = "done"
 	PhaseError    = "error"
@@ -96,7 +98,7 @@ func (s *ScannerService) Scan(ctx context.Context, rootPath string, progressCh c
 
 	s.sendProgress(progressCh, PhaseMatching, len(entries), 0, 0, 0, "")
 
-	// Step 2: Match by composite key
+	// Step 2: Match by composite key (dir + basename)
 	type matchKey struct {
 		dir  string
 		base string
@@ -142,24 +144,114 @@ func (s *ScannerService) Scan(ctx context.Context, rootPath string, progressCh c
 		}
 	}
 
-	// Determine match status
+	// Determine match status — first pass by dir+basename
 	matched := 0
 	orphans := 0
 	var assets []*types.Asset
+	var raws, jpgs []*types.Asset
 
 	for _, a := range groups {
 		if a.RawFile != nil && a.JpgFile != nil {
 			a.MatchStatus = types.MatchStatusPaired
 			matched++
-		} else {
+		} else if a.RawFile != nil {
+			raws = append(raws, a)
+			orphans++
+		} else if a.JpgFile != nil {
+			jpgs = append(jpgs, a)
 			orphans++
 		}
 		assets = append(assets, a)
 	}
 
-	s.sendProgress(progressCh, PhaseSaving, len(entries), len(entries), matched, orphans, "")
+	// Second pass: match orphans by capture time (also extracts EXIF for these files)
+	if len(raws) > 0 && len(jpgs) > 0 {
+		rawByTime := make(map[string]*types.Asset)
+		for _, raw := range raws {
+			exifData, err := extractExif(raw.RawFile.FilePath)
+			if err != nil {
+				continue
+			}
+			raw.RawFile.Exif = exifData
+			key := exifData.CapturedAt.UTC().Round(time.Second).Format(time.RFC3339)
+			rawByTime[key] = raw
+		}
 
-	// Step 3: Batch insert — files are embedded in assets
+		timeMatched := make(map[*types.Asset]bool)
+		for _, jpg := range jpgs {
+			exifData, err := extractExif(jpg.JpgFile.FilePath)
+			if err != nil {
+				continue
+			}
+			jpg.JpgFile.Exif = exifData
+			key := exifData.CapturedAt.UTC().Round(time.Second).Format(time.RFC3339)
+			if raw, ok := rawByTime[key]; ok {
+				raw.JpgFile = jpg.JpgFile
+				raw.MatchStatus = types.MatchStatusPaired
+				timeMatched[jpg] = true
+				matched++
+				orphans -= 2 // one raw + one jpg became a pair
+			}
+		}
+
+		// Remove matched JPG orphans from assets
+		if len(timeMatched) > 0 {
+			filtered := make([]*types.Asset, 0, len(assets))
+			for _, a := range assets {
+				if timeMatched[a] {
+					continue
+				}
+				filtered = append(filtered, a)
+			}
+			assets = filtered
+		}
+	}
+
+	s.sendProgress(progressCh, PhaseExif, len(entries), 0, matched, orphans, "")
+
+	// Step 3: Extract EXIF for remaining files that don't have it yet
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, s.cfg.ConcurrencyLimit)
+	exifCount := 0
+	var exifMu sync.Mutex
+	for _, a := range assets {
+		for _, f := range []*types.MediaFile{a.RawFile, a.JpgFile} {
+			if f == nil || f.Exif != nil {
+				continue // already extracted during time-matching
+			}
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(mf *types.MediaFile) {
+				defer func() {
+					<-sem
+					wg.Done()
+				}()
+				if exifData, err := extractExif(mf.FilePath); err == nil {
+					mf.Exif = exifData
+					exifMu.Lock()
+					exifCount++
+					exifMu.Unlock()
+				}
+			}(f)
+		}
+	}
+	wg.Wait()
+
+	// Propagate capture time from media files to asset
+	for _, a := range assets {
+		for _, f := range []*types.MediaFile{a.RawFile, a.JpgFile} {
+			if f != nil && f.Exif != nil && !f.Exif.CapturedAt.IsZero() {
+				if a.CapturedAt == nil || f.Exif.CapturedAt.Before(*a.CapturedAt) {
+					t := f.Exif.CapturedAt
+					a.CapturedAt = &t
+				}
+			}
+		}
+	}
+
+	s.sendProgress(progressCh, PhaseSaving, len(entries), exifCount, matched, orphans, "")
+
+	// Step 4: Batch insert — files are embedded in assets
 	const batchSize = 500
 	for i := 0; i < len(assets); i += batchSize {
 		end := i + batchSize
