@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import type { Asset } from '../types/asset'
 import RatingStars from './RatingStars.vue'
 import ColorLabel from './ColorLabel.vue'
+import { useI18n } from '../i18n'
 
 const props = defineProps<{
   asset: Asset
@@ -18,12 +19,14 @@ function thumbUrl(id: number, size: string): string {
   return `/api/v1/thumbs/${id}?size=${size}`
 }
 
+const { t } = useI18n()
+
 const matchLabel = computed(() => {
   const hasRaw = !!props.asset.raw_file
   const hasJpg = !!props.asset.jpg_file
-  if (hasRaw && hasJpg) return 'RAW + JPG'
-  if (hasRaw) return 'RAW'
-  if (hasJpg) return 'JPG'
+  if (hasRaw && hasJpg) return t('match.raw_jpg')
+  if (hasRaw) return t('match.raw')
+  if (hasJpg) return t('match.jpg')
   return ''
 })
 </script>

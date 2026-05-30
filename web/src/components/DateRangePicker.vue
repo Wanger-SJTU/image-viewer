@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useI18n } from '../i18n'
+
+const { t, locale } = useI18n()
 
 const props = defineProps<{
   dateAfter?: string
@@ -15,7 +18,13 @@ const pickingAfter = ref(true) // true=picking from, false=picking to
 
 const monthLabel = computed(() => {
   const d = currentMonth.value
-  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long' })
+  const loc = locale.value === 'zh' ? 'zh-CN' : 'en-US'
+  return d.toLocaleDateString(loc, { year: 'numeric', month: 'long' })
+})
+
+const weekdays = computed(() => {
+  if (locale.value === 'zh') return ['日','一','二','三','四','五','六']
+  return ['Su','Mo','Tu','We','Th','Fr','Sa']
 })
 
 const weeks = computed(() => {
@@ -113,7 +122,7 @@ function nextMonth() {
     </div>
 
     <div class="cal-weekdays">
-      <span v-for="w in ['Su','Mo','Tu','We','Th','Fr','Sa']" :key="w" class="cal-wd">{{ w }}</span>
+      <span v-for="w in weekdays" :key="w" class="cal-wd">{{ w }}</span>
     </div>
 
     <div v-for="(week, wi) in weeks" :key="wi" class="cal-week">
@@ -141,7 +150,7 @@ function nextMonth() {
       <button class="cal-clear" @click="clearDates">&times;</button>
     </div>
     <div class="cal-info cal-hint" v-else>
-      Click a date to set the range
+      {{ t('filter.cal_hint') }}
     </div>
   </div>
 </template>
