@@ -90,40 +90,37 @@ function openScan() {
 
 <template>
   <div class="gallery">
-    <div class="gallery-toolbar">
-      <div class="toolbar-left">
-        <button class="scan-btn" @click="openScan">Scan</button>
-        <button class="clear-btn" @click="clearAll">Clear All</button>
-        <span class="count-info" v-if="assetStore.total">
-          {{ assetStore.total }} assets
-        </span>
-        <span class="count-info" v-else>
-          No assets. Click Scan to import photos.
-        </span>
-      </div>
-      <div class="toolbar-right">
-        <button
-          class="scan-btn"
-          @click="assetStore.fetchAssets()"
-        >
-          Refresh
-        </button>
-      </div>
-    </div>
-
     <FilterBar
       :filter="assetStore.filter"
       @update="assetStore.updateFilter($event)"
       @clear="assetStore.updateFilter({})"
     />
 
-    <div class="gallery-content">
-      <ImageGrid
-        :assets="assetStore.assets"
-        @select="openPreview"
-        @rate="(id, r) => assetStore.setRating(id, r)"
-        @label="(id, l) => assetStore.setLabel(id, l)"
-      />
+    <div class="gallery-main">
+      <div class="gallery-toolbar">
+        <div class="toolbar-left">
+          <button class="scan-btn" @click="openScan">Scan</button>
+          <button class="clear-btn" @click="clearAll">Clear All</button>
+          <span class="count-info" v-if="assetStore.total">
+            {{ assetStore.total }} assets
+          </span>
+          <span class="count-info" v-else>
+            No assets. Click Scan to import photos.
+          </span>
+        </div>
+        <div class="toolbar-right">
+          <button class="refresh-btn" @click="assetStore.fetchAssets()">Refresh</button>
+        </div>
+      </div>
+
+      <div class="gallery-content">
+        <ImageGrid
+          :assets="assetStore.assets"
+          @select="openPreview"
+          @rate="(id, r) => assetStore.setRating(id, r)"
+          @label="(id, l) => assetStore.setLabel(id, l)"
+        />
+      </div>
     </div>
 
     <ImagePreview
@@ -142,8 +139,15 @@ function openScan() {
 <style scoped>
 .gallery {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   height: 100%;
+  overflow: hidden;
+}
+
+.gallery-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 
@@ -195,6 +199,20 @@ function openScan() {
 
 .clear-btn:hover {
   background: #777;
+}
+
+.refresh-btn {
+  padding: 4px 16px;
+  background: #1a1a2e;
+  color: #ccc;
+  border: 1px solid #0f3460;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.refresh-btn:hover {
+  border-color: #e94560;
 }
 
 .count-info {

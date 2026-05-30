@@ -13,7 +13,6 @@ const emit = defineEmits<{
   clear: []
 }>()
 
-const showAdvanced = ref(false)
 const options = ref<FilterOptions>({
   camera_models: [],
   focal_lengths: [],
@@ -45,159 +44,167 @@ function clearAll() {
 </script>
 
 <template>
-  <div class="filter-bar">
-    <div class="filter-row">
-      <input
-        type="text"
-        class="search-input"
-        placeholder="Search by filename..."
-        :value="filter.search || ''"
-        @input="updateFilter({ search: ($event.target as HTMLInputElement).value || undefined })"
-      />
+  <div class="filter-sidebar">
+    <div class="filter-title">Filters</div>
 
-      <div class="rating-filter">
+    <!-- Search -->
+    <input
+      type="text"
+      class="filter-search"
+      placeholder="Search filename..."
+      :value="filter.search || ''"
+      @input="updateFilter({ search: ($event.target as HTMLInputElement).value || undefined })"
+    />
+
+    <!-- Rating -->
+    <div class="filter-section">
+      <div class="filter-label">Rating</div>
+      <div class="rating-stars">
         <button
           v-for="r in [1, 2, 3, 4, 5]"
           :key="r"
           class="filter-star"
           :class="{ active: filter.rating && r <= filter.rating }"
           @click="setRating(r)"
-        >
-          &#9733;
-        </button>
+        >&#9733;</button>
+        <button
+          v-if="filter.rating"
+          class="filter-star clear-star"
+          @click="setRating(filter.rating!)"
+        >&#10005;</button>
       </div>
-
-      <button class="toggle-btn" @click="showAdvanced = !showAdvanced">
-        {{ showAdvanced ? 'Hide' : 'Filters' }}
-      </button>
-
-      <button class="clear-btn" @click="clearAll">Clear</button>
     </div>
 
-    <div v-if="showAdvanced" class="filter-advanced">
-      <!-- File type -->
-      <label class="filter-label">
-        Type
-        <select
-          class="filter-select"
-          :value="filter.file_type || ''"
-          @change="updateFilter({ file_type: ($event.target as HTMLSelectElement).value || undefined })"
-        >
-          <option value="">All</option>
-          <option v-for="t in options.file_types" :key="t" :value="t">{{ t.toUpperCase() }}</option>
-        </select>
-      </label>
+    <!-- File type -->
+    <div class="filter-section">
+      <label class="filter-label">File Type</label>
+      <select
+        class="filter-select"
+        :value="filter.file_type || ''"
+        @change="updateFilter({ file_type: ($event.target as HTMLSelectElement).value || undefined })"
+      >
+        <option value="">All</option>
+        <option v-for="t in options.file_types" :key="t" :value="t">{{ t.toUpperCase() }}</option>
+      </select>
+    </div>
 
-      <!-- Camera model -->
-      <label class="filter-label">
-        Camera
-        <select
-          class="filter-select"
-          :value="filter.camera_model || ''"
-          @change="updateFilter({ camera_model: ($event.target as HTMLSelectElement).value || undefined })"
-        >
-          <option value="">All</option>
-          <option v-for="m in options.camera_models" :key="m" :value="m">{{ m }}</option>
-        </select>
-      </label>
+    <!-- Camera -->
+    <div class="filter-section">
+      <label class="filter-label">Camera</label>
+      <select
+        class="filter-select"
+        :value="filter.camera_model || ''"
+        @change="updateFilter({ camera_model: ($event.target as HTMLSelectElement).value || undefined })"
+      >
+        <option value="">All</option>
+        <option v-for="m in options.camera_models" :key="m" :value="m">{{ m }}</option>
+      </select>
+    </div>
 
-      <!-- Date range -->
-      <label class="filter-label">
-        Date
-        <input
-          type="date"
-          class="filter-input filter-input--date"
-          :value="filter.captured_after || ''"
-          @input="updateFilter({ captured_after: ($event.target as HTMLInputElement).value || undefined })"
-        />
-        <span class="filter-sep">-</span>
-        <input
-          type="date"
-          class="filter-input filter-input--date"
-          :value="filter.captured_before || ''"
-          @input="updateFilter({ captured_before: ($event.target as HTMLInputElement).value || undefined })"
-        />
-      </label>
+    <!-- Date range -->
+    <div class="filter-section">
+      <label class="filter-label">Date</label>
+      <input
+        type="date"
+        class="filter-select"
+        :value="filter.captured_after || ''"
+        @input="updateFilter({ captured_after: ($event.target as HTMLInputElement).value || undefined })"
+      />
+      <input
+        type="date"
+        class="filter-select"
+        style="margin-top:4px"
+        :value="filter.captured_before || ''"
+        @input="updateFilter({ captured_before: ($event.target as HTMLInputElement).value || undefined })"
+      />
+    </div>
 
-      <!-- Focal length range -->
-      <label class="filter-label">
-        FL (mm)
+    <!-- Focal length -->
+    <div class="filter-section">
+      <label class="filter-label">Focal Length (mm)</label>
+      <div class="filter-range">
         <select
-          class="filter-select"
+          class="filter-select flex-1"
           :value="filter.focal_length_min || ''"
           @change="updateFilter({ focal_length_min: toNum(($event.target as HTMLSelectElement).value) })"
         >
           <option value="">min</option>
           <option v-for="v in options.focal_lengths" :key="v" :value="v">{{ v }}</option>
         </select>
-        <span class="filter-sep">-</span>
+        <span class="range-sep">-</span>
         <select
-          class="filter-select"
+          class="filter-select flex-1"
           :value="filter.focal_length_max || ''"
           @change="updateFilter({ focal_length_max: toNum(($event.target as HTMLSelectElement).value) })"
         >
           <option value="">max</option>
           <option v-for="v in options.focal_lengths" :key="v" :value="v">{{ v }}</option>
         </select>
-      </label>
+      </div>
+    </div>
 
-      <!-- Aperture range -->
-      <label class="filter-label">
-        Aperture
+    <!-- Aperture -->
+    <div class="filter-section">
+      <label class="filter-label">Aperture</label>
+      <div class="filter-range">
         <select
-          class="filter-select"
+          class="filter-select flex-1"
           :value="filter.aperture_min || ''"
           @change="updateFilter({ aperture_min: toNum(($event.target as HTMLSelectElement).value) })"
         >
           <option value="">min</option>
           <option v-for="v in options.apertures" :key="v" :value="v">f/{{ v }}</option>
         </select>
-        <span class="filter-sep">-</span>
+        <span class="range-sep">-</span>
         <select
-          class="filter-select"
+          class="filter-select flex-1"
           :value="filter.aperture_max || ''"
           @change="updateFilter({ aperture_max: toNum(($event.target as HTMLSelectElement).value) })"
         >
           <option value="">max</option>
           <option v-for="v in options.apertures" :key="v" :value="v">f/{{ v }}</option>
         </select>
-      </label>
+      </div>
+    </div>
 
-      <!-- ISO range -->
-      <label class="filter-label">
-        ISO
+    <!-- ISO -->
+    <div class="filter-section">
+      <label class="filter-label">ISO</label>
+      <div class="filter-range">
         <select
-          class="filter-select"
+          class="filter-select flex-1"
           :value="filter.iso_min || ''"
           @change="updateFilter({ iso_min: toNum(($event.target as HTMLSelectElement).value) })"
         >
           <option value="">min</option>
           <option v-for="v in options.isos" :key="v" :value="v">{{ v }}</option>
         </select>
-        <span class="filter-sep">-</span>
+        <span class="range-sep">-</span>
         <select
-          class="filter-select"
+          class="filter-select flex-1"
           :value="filter.iso_max || ''"
           @change="updateFilter({ iso_max: toNum(($event.target as HTMLSelectElement).value) })"
         >
           <option value="">max</option>
           <option v-for="v in options.isos" :key="v" :value="v">{{ v }}</option>
         </select>
-      </label>
-
-      <!-- Color label -->
-      <label class="filter-label">
-        Label
-        <select
-          class="filter-select"
-          :value="filter.color_label || ''"
-          @change="updateFilter({ color_label: ($event.target as HTMLSelectElement).value || undefined })"
-        >
-          <option value="">All</option>
-          <option v-for="l in options.color_labels" :key="l" :value="l">{{ l }}</option>
-        </select>
-      </label>
+      </div>
     </div>
+
+    <!-- Color label -->
+    <div class="filter-section">
+      <label class="filter-label">Color Label</label>
+      <select
+        class="filter-select"
+        :value="filter.color_label || ''"
+        @change="updateFilter({ color_label: ($event.target as HTMLSelectElement).value || undefined })"
+      >
+        <option value="">All</option>
+        <option v-for="l in options.color_labels" :key="l" :value="l">{{ l }}</option>
+      </select>
+    </div>
+
+    <button class="clear-filter-btn" @click="clearAll">Clear All Filters</button>
   </div>
 </template>
 
@@ -209,37 +216,91 @@ function toNum(v: string): number | undefined {
 </script>
 
 <style scoped>
-.filter-bar {
-  padding: 8px 12px;
+.filter-sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  padding: 12px;
   background: #16213e;
-  border-bottom: 1px solid #0f3460;
-}
-
-.filter-row {
+  border-right: 1px solid #0f3460;
+  overflow-y: auto;
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.search-input {
-  flex: 1;
-  max-width: 240px;
-  padding: 5px 10px;
+.filter-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #eee;
+  margin-bottom: 4px;
+}
+
+.filter-search {
+  padding: 5px 8px;
   border: 1px solid #0f3460;
   border-radius: 4px;
   background: #1a1a2e;
   color: #eee;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   outline: none;
+  width: 100%;
+  box-sizing: border-box;
 }
 
-.search-input:focus {
+.filter-search:focus {
   border-color: #e94560;
 }
 
-.rating-filter {
+.filter-section {
   display: flex;
-  gap: 2px;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.filter-label {
+  font-size: 0.72rem;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.filter-select {
+  padding: 4px 6px;
+  border: 1px solid #0f3460;
+  border-radius: 3px;
+  background: #1a1a2e;
+  color: #eee;
+  font-size: 0.78rem;
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.filter-select:focus {
+  border-color: #e94560;
+}
+
+.filter-range {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.flex-1 {
+  flex: 1;
+  min-width: 0;
+}
+
+.range-sep {
+  color: #555;
+  font-size: 0.7rem;
+  flex-shrink: 0;
+}
+
+.rating-stars {
+  display: flex;
+  gap: 1px;
+  align-items: center;
 }
 
 .filter-star {
@@ -249,68 +310,33 @@ function toNum(v: string): number | undefined {
   font-size: 1rem;
   cursor: pointer;
   padding: 0 1px;
+  line-height: 1;
 }
 
 .filter-star.active {
   color: #f4c430;
 }
 
-.toggle-btn,
-.clear-btn {
-  padding: 4px 12px;
-  border: 1px solid #0f3460;
-  border-radius: 4px;
-  background: #1a1a2e;
-  color: #ccc;
-  font-size: 0.8rem;
-  cursor: pointer;
+.filter-star.clear-star {
+  color: #666;
+  font-size: 0.75rem;
+  margin-left: 2px;
 }
 
-.toggle-btn:hover,
-.clear-btn:hover {
-  border-color: #e94560;
-}
-
-.filter-advanced {
+.clear-filter-btn {
   margin-top: 8px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
-}
-
-.filter-label {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+  padding: 5px 0;
+  border: 1px solid #444;
+  border-radius: 4px;
+  background: transparent;
   color: #999;
   font-size: 0.78rem;
-  white-space: nowrap;
+  cursor: pointer;
+  width: 100%;
 }
 
-.filter-select,
-.filter-input {
-  padding: 3px 6px;
-  border: 1px solid #0f3460;
-  border-radius: 3px;
-  background: #1a1a2e;
-  color: #eee;
-  font-size: 0.8rem;
-  outline: none;
-}
-
-.filter-select:focus,
-.filter-input:focus {
+.clear-filter-btn:hover {
   border-color: #e94560;
-}
-
-.filter-input--date {
-  width: 120px;
-  min-width: 0;
-}
-
-.filter-sep {
-  color: #555;
-  font-size: 0.75rem;
+  color: #e94560;
 }
 </style>
