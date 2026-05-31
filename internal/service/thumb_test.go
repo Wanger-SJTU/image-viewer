@@ -146,7 +146,7 @@ func TestGetThumbPath_CacheHit(t *testing.T) {
 	}
 
 	// Second call should return cached path
-	cachedPath, err := thumbSvc.GetThumbPath(context.Background(), asset.ID, ThumbGrid)
+	cachedPath, err := thumbSvc.GetThumbPath(context.Background(), asset.ID, ThumbGrid, "")
 	if err != nil {
 		t.Fatalf("GetThumbPath: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestGetThumbPath_InvalidSize(t *testing.T) {
 	thumbSvc, _, _, _, cleanup := setupThumbTest(t)
 	defer cleanup()
 
-	_, err := thumbSvc.GetThumbPath(context.Background(), 1, "invalid")
+	_, err := thumbSvc.GetThumbPath(context.Background(), 1, "invalid", "")
 	if err == nil {
 		t.Error("expected error for invalid size")
 	}

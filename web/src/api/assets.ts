@@ -1,5 +1,5 @@
 import client, { unwrap, unwrapWithMeta } from './client'
-import type { Asset } from '../types/asset'
+import type { Asset, PurgeRequest } from '../types/asset'
 import type { AssetFilter } from '../types/filter'
 import type { RateRequest, LabelRequest, FilterOptions } from '../types/api'
 
@@ -8,7 +8,7 @@ export async function listAssets(
   page = 1,
   limit = 50
 ): Promise<{ data: Asset[]; meta: { total: number; page: number; limit: number } }> {
-  const params: Record<string, string | number> = { page, limit }
+  const params: Record<string, string | number | boolean> = { page, limit }
   if (filter.rating) params.rating = filter.rating
   if (filter.color_label) params.color_label = filter.color_label
   if (filter.camera_model) params.camera_model = filter.camera_model
@@ -31,6 +31,7 @@ export async function listAssets(
       ? filter.captured_before
       : filter.captured_before + 'T00:00:00Z'
   }
+  if (filter.trashed !== undefined) params.trashed = filter.trashed
   const resp = await client.get('/assets', { params })
   return unwrapWithMeta<Asset[]>(resp)
 }
@@ -62,4 +63,23 @@ export async function getFilterOptions(): Promise<FilterOptions> {
 export async function clearAssets(): Promise<number> {
   const resp = await client.delete('/assets')
   return unwrap<{ deleted: number }>(resp).deleted
+}
+
+export async function trashAsset(id: number): Promise<void> {
+  await client.post(`/assets/${id}/trash`)
+}
+
+export async function restoreAsset(id: number): Promise<void> {
+  await client.post(`/assets/${id}/restore`)
+}
+
+export async function purgeAsset(id: number, fileType: 'both' | 'jpg' | 'raw'): Promise<void> {
+  const body: PurgeRequest = { file_type: fileType }
+  await client.post(`/assets/${id}/purge`, body)
+}
+
+export async function listTrashedAssets(page = 1, limit = 50): Promise<{ data: Asset[]; meta: { total: number; page: number; limit: number } }> {
+  const params: Record<string, string | number | boolean> = { page, limit, trashed: true }
+  const resp = await client.get('/assets', { params })
+  return unwrapWithMeta<Asset[]>(resp)
 }

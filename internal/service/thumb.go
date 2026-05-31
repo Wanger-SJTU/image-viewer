@@ -43,7 +43,8 @@ func NewThumbService(cfg *config.Config, repo interface {
 }
 
 // GetThumbPath returns the cached thumbnail path for an asset, or generates it if missing.
-func (s *ThumbService) GetThumbPath(ctx context.Context, assetID int64, size string) (string, error) {
+// fileType can be "jpg" or "raw" to force a specific source; empty string auto-selects (JPG preferred).
+func (s *ThumbService) GetThumbPath(ctx context.Context, assetID int64, size string, fileType string) (string, error) {
 	if size != ThumbGrid && size != ThumbFull {
 		return "", fmt.Errorf("invalid size: %q, must be %q or %q", size, ThumbGrid, ThumbFull)
 	}
@@ -54,6 +55,16 @@ func (s *ThumbService) GetThumbPath(ctx context.Context, assetID int64, size str
 	}
 	if asset == nil {
 		return "", fmt.Errorf("asset %d not found", assetID)
+	}
+
+	// If a specific file type is requested, generate a type-specific cache file
+	if fileType != "" {
+		thumbName := fmt.Sprintf("%d_%s_%s.jpg", assetID, size, fileType)
+		thumbPath := filepath.Join(s.cfg.CacheDir, thumbName)
+		if _, err := os.Stat(thumbPath); err == nil {
+			return thumbPath, nil
+		}
+		return s.generateForType(ctx, asset, size, fileType)
 	}
 
 	var thumbPath string
@@ -72,6 +83,81 @@ func (s *ThumbService) GetThumbPath(ctx context.Context, assetID int64, size str
 
 	// Generate if missing
 	return s.GenerateThumb(ctx, asset, size)
+}
+
+// generateForType generates a thumbnail from a specific file type (jpg or raw).
+// Does NOT update the database columns — saves to a type-specific cache file.
+func (s *ThumbService) generateForType(ctx context.Context, asset *types.Asset, size string, fileType string) (string, error) {
+	var srcPath string
+	switch fileType {
+	case "jpg":
+		if asset.JpgFile != nil {
+			srcPath = asset.JpgFile.FilePath
+		} else {
+			return "", fmt.Errorf("asset %d has no JPG file", asset.ID)
+		}
+	case "raw":
+		if asset.RawFile != nil {
+			srcPath = asset.RawFile.FilePath
+		} else {
+			return "", fmt.Errorf("asset %d has no RAW file", asset.ID)
+		}
+	default:
+		return "", fmt.Errorf("invalid file type: %q", fileType)
+	}
+
+	targetSize := 600
+	if size == ThumbFull {
+		targetSize = 2048
+	}
+
+	var img image.Image
+	var err error
+
+	isRaw := fileType == "raw"
+	if isRaw {
+		jpegData, extractErr := ExtractEmbeddedJPEG(srcPath)
+		if extractErr != nil {
+			return "", fmt.Errorf("raw preview extraction: %w", extractErr)
+		}
+		img, _, err = image.Decode(bytes.NewReader(jpegData))
+		if err != nil {
+			return "", fmt.Errorf("decode extracted preview: %w", err)
+		}
+		if o := readOrientation(srcPath); o > 1 {
+			img = applyOrientation(img, o)
+		}
+	} else {
+		scale := pickScale(srcPath, targetSize)
+		if scale > 1 {
+			img, err = jpegdecoder.DecodeFileScaled(srcPath, scale)
+		} else {
+			img, err = jpegdecoder.DecodeFile(srcPath)
+		}
+		if err != nil {
+			return "", fmt.Errorf("decode jpeg: %w", err)
+		}
+		if o := readOrientation(srcPath); o > 1 {
+			img = applyOrientation(img, o)
+		}
+	}
+
+	resized := resizeImage(img, targetSize)
+
+	thumbName := fmt.Sprintf("%d_%s_%s.jpg", asset.ID, size, fileType)
+	thumbPath := filepath.Join(s.cfg.CacheDir, thumbName)
+
+	outFile, err := os.Create(thumbPath)
+	if err != nil {
+		return "", fmt.Errorf("create thumb file: %w", err)
+	}
+	defer outFile.Close()
+
+	if err := jpeg.Encode(outFile, resized, &jpeg.Options{Quality: 85}); err != nil {
+		return "", fmt.Errorf("encode thumb: %w", err)
+	}
+
+	return thumbPath, nil
 }
 
 // GenerateThumb generates a thumbnail for the given asset and size.
@@ -420,7 +506,7 @@ func (s *ThumbService) PreGenerateAll(ctx context.Context) {
 		go func(assetID int64) {
 			defer func() { <-sem }()
 			// Only generate grid thumbs; full thumbs on demand
-			_, _ = s.GetThumbPath(ctx, assetID, ThumbGrid)
+			_, _ = s.GetThumbPath(ctx, assetID, ThumbGrid, "")
 		}(id)
 	}
 }

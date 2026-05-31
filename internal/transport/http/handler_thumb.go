@@ -17,7 +17,8 @@ func (h *Handler) GetThumb(c *gin.Context) {
 	}
 
 	size := c.DefaultQuery("size", "grid")
-	cachedPath, err := h.thumbSvc.GetThumbPath(c.Request.Context(), id, size)
+	fileType := c.Query("file") // "jpg" or "raw" to force specific source
+	cachedPath, err := h.thumbSvc.GetThumbPath(c.Request.Context(), id, size, fileType)
 	if err != nil {
 		c.JSON(404, types.APIResponse{Success: false, Error: err.Error()})
 		return

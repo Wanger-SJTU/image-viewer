@@ -7,6 +7,7 @@ const { t, locale } = useI18n()
 const props = defineProps<{
   dateAfter?: string
   dateBefore?: string
+  photoDates?: string[]
 }>()
 
 const emit = defineEmits<{
@@ -78,6 +79,17 @@ function isBefore(day: number): boolean {
   return fmt(d) === fmt(beforeDate.value)
 }
 
+const photoDatesSet = computed(() => {
+  if (!props.photoDates || props.photoDates.length === 0) return null
+  return new Set(props.photoDates)
+})
+
+function hasPhoto(day: number): boolean {
+  if (!photoDatesSet.value) return true // no data = assume has photos
+  const d = new Date(currentMonth.value.getFullYear(), currentMonth.value.getMonth(), day)
+  return photoDatesSet.value.has(fmt(d))
+}
+
 function pickDay(day: number) {
   const d = new Date(currentMonth.value.getFullYear(), currentMonth.value.getMonth(), day)
   const s = fmt(d)
@@ -132,6 +144,7 @@ function nextMonth() {
         class="cal-day"
         :class="{
           empty: day === null,
+          'no-photo': day !== null && !hasPhoto(day!),
           'in-range': day !== null && isInRange(day!),
           after: day !== null && isAfter(day!),
           before: day !== null && isBefore(day!),
@@ -223,6 +236,10 @@ function nextMonth() {
 
 .cal-day.empty {
   cursor: default;
+}
+
+.cal-day.no-photo {
+  color: #444;
 }
 
 .cal-day:hover:not(.empty) {

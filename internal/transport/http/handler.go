@@ -90,6 +90,10 @@ func (h *Handler) ListAssets(c *gin.Context) {
 	if v := c.Query("captured_before"); v != "" {
 		filter.CapturedBefore, _ = time.Parse(time.RFC3339, v)
 	}
+	if v := c.Query("trashed"); v != "" {
+		t := v == "true" || v == "1"
+		filter.Trashed = &t
+	}
 
 	assets, total, err := h.assetSvc.List(c.Request.Context(), &filter, page, limit)
 	if err != nil {
@@ -171,6 +175,63 @@ func (h *Handler) DeleteAsset(c *gin.Context) {
 	}
 
 	if err := h.assetSvc.Delete(c.Request.Context(), id); err != nil {
+		respondError(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	c.JSON(http.StatusOK, types.APIResponse{Success: true, Data: gin.H{"id": id}})
+}
+
+// TrashAsset moves an asset to the trash (soft delete).
+func (h *Handler) TrashAsset(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "invalid asset id")
+		return
+	}
+
+	if err := h.assetSvc.Trash(c.Request.Context(), id); err != nil {
+		respondError(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	c.JSON(http.StatusOK, types.APIResponse{Success: true, Data: gin.H{"id": id}})
+}
+
+// RestoreAsset restores a trashed asset.
+func (h *Handler) RestoreAsset(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "invalid asset id")
+		return
+	}
+
+	if err := h.assetSvc.Restore(c.Request.Context(), id); err != nil {
+		respondError(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	c.JSON(http.StatusOK, types.APIResponse{Success: true, Data: gin.H{"id": id}})
+}
+
+// PurgeAsset permanently deletes an asset or specific file types.
+func (h *Handler) PurgeAsset(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "invalid asset id")
+		return
+	}
+
+	var req types.PurgeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.FileType == "" {
+		req.FileType = "both"
+	}
+
+	if err := h.assetSvc.PurgeWithCleanup(c.Request.Context(), id, req.FileType); err != nil {
 		respondError(c, http.StatusInternalServerError, err.Error())
 		return
 	}

@@ -22,15 +22,30 @@ function close() {
 
 async function startScan() {
   if (!path.value.trim()) return
+  // Don't close dialog — let user see progress
   await scanStore.scan(path.value.trim())
-  close()
   assetStore.fetchAssets()
+}
+
+function progressPct(): number {
+  const p = scanStore.progress
+  if (p.found === 0) return 0
+  return Math.round((p.processed / p.found) * 100)
+}
+
+const phaseLabels: Record<string, string> = {
+  scanning: 'Scanning files...',
+  matching: 'Matching pairs...',
+  exif: 'Reading EXIF...',
+  saving: 'Saving to database...',
+  done: 'Done',
+  error: 'Error',
 }
 </script>
 
 <template>
   <Teleport to="body">
-    <div v-if="visible" class="scan-overlay" @click.self="close">
+    <div v-if="visible" class="scan-overlay" @click.self="!scanStore.scanning && close()">
       <div class="scan-dialog">
         <h3>Scan Directory</h3>
         <p class="scan-hint">Enter the absolute path to a directory containing photos.</p>
@@ -39,14 +54,32 @@ async function startScan() {
           type="text"
           class="scan-input"
           placeholder="/path/to/photos"
+          :disabled="scanStore.scanning"
           @keyup.enter="startScan"
         />
         <div class="scan-actions">
-          <button class="btn btn-cancel" @click="close">Cancel</button>
+          <button class="btn btn-cancel" :disabled="scanStore.scanning" @click="close">Cancel</button>
           <button class="btn btn-scan" :disabled="!path.trim() || scanStore.scanning" @click="startScan">
             {{ scanStore.scanning ? 'Scanning...' : 'Scan' }}
           </button>
         </div>
+
+        <!-- Progress bar -->
+        <div v-if="scanStore.scanning" class="progress-section">
+          <div class="progress-bar">
+            <div class="progress-fill" :style="{ width: progressPct() + '%' }" />
+          </div>
+          <p class="progress-text">
+            {{ phaseLabels[scanStore.progress.phase] || scanStore.progress.phase }}
+            <span v-if="scanStore.progress.found > 0">
+              ({{ scanStore.progress.processed }} / {{ scanStore.progress.found }})
+            </span>
+          </p>
+          <p v-if="scanStore.progress.matched > 0 || scanStore.progress.orphans > 0" class="progress-stats">
+            Matched: {{ scanStore.progress.matched }} | Orphans: {{ scanStore.progress.orphans }}
+          </p>
+        </div>
+
         <p v-if="scanStore.error" class="scan-error">{{ scanStore.error }}</p>
       </div>
     </div>
@@ -134,5 +167,37 @@ h3 {
   color: #e94560;
   font-size: 0.85rem;
   margin-top: 8px;
+}
+
+/* Progress */
+.progress-section {
+  margin-top: 16px;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 6px;
+  background: #1a1a2e;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: #e94560;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  color: #aaa;
+  font-size: 0.8rem;
+  margin: 8px 0 4px;
+}
+
+.progress-stats {
+  color: #888;
+  font-size: 0.75rem;
+  margin: 0;
 }
 </style>

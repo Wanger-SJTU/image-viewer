@@ -81,5 +81,16 @@ func runMigrations(db *sql.DB) error {
 		}
 	}
 
+	// Soft-delete migration: add deleted_at column if not present
+	var hasDeletedAt bool
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('assets') WHERE name='deleted_at'`).Scan(&hasDeletedAt); err == nil && !hasDeletedAt {
+		if _, err := db.Exec(`ALTER TABLE assets ADD COLUMN deleted_at DATETIME`); err != nil {
+			return fmt.Errorf("add deleted_at column: %w", err)
+		}
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_assets_deleted_at ON assets(deleted_at)`); err != nil {
+		return fmt.Errorf("create deleted_at index: %w", err)
+	}
+
 	return nil
 }

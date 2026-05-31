@@ -39,8 +39,13 @@ export interface Asset {
   color_label: ColorLabel
   ai_status: string
   captured_at?: string
+  deleted_at?: string
   grid_thumb: string
   full_thumb: string
   created_at: string
   updated_at: string
+}
+
+export interface PurgeRequest {
+  file_type: 'both' | 'jpg' | 'raw'
 }

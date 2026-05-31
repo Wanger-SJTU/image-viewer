@@ -13,4 +13,5 @@ export interface AssetFilter {
   captured_after?: string
   captured_before?: string
   search?: string
+  trashed?: boolean
 }

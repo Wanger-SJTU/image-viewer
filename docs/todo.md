@@ -1,106 +1,121 @@
 # TODO — Image Viewer
 
-## Completed Features
+## 已完成功能
 
-### Scanning & Matching
-- [x] Concurrent WalkDir + bounded worker pool
-- [x] Dual-track matching (dir+basename) — RAW ↔ JPG pairing
-- [x] Time-based matching — cross-directory pairing via EXIF capture time
-- [x] Scan progress reporting (phases: scanning → matching → exif → saving → done)
+### 扫描与匹配
+- [x] 并发 WalkDir + 有界工作池
+- [x] 双轨匹配（文件名+拍摄日期）—— RAW ↔ JPG 配对
+- [x] 时间匹配 —— 跨目录通过 EXIF 拍摄时间配对
+- [x] 扫描进度报告（阶段：扫描 → 匹配 → EXIF → 保存 → 完成）
+- [x] 进度条实时显示（轮询 /scan/status）
 
-### EXIF Extraction
-- [x] Full EXIF metadata: camera model, lens, focal length, aperture, shutter speed, ISO
-- [x] Image dimensions, orientation, capture time
-- [x] Bounded concurrent extraction (configurable concurrency limit)
-- [x] EXIF stored in `media_files` table, `captured_at` propagated to `assets`
-- [x] EXIF orientation auto-rotation on thumbnails (8 orientations: 1-8)
-- [x] Orientation read from ARW files directly via goexif (ARW embedded JPEG has no EXIF)
+### EXIF 提取
+- [x] 完整 EXIF 元数据：相机型号、镜头、焦段、光圈、快门速度、ISO
+- [x] 图片尺寸、方向、拍摄时间
+- [x] 有界并发提取（可配置并发数）
+- [x] EXIF 存储在 `media_files` 表，`captured_at` 同步到 `assets`
+- [x] EXIF 方向自动旋转缩略图（8 种方向：1-8）
+- [x] ARW 文件通过 goexif 直接读取方向（ARW 内嵌 JPEG 无 EXIF）
 
-### Thumbnails
-- [x] Dual-layer cache: grid (600px) + full (2048px)
-- [x] CGO/libjpeg-turbo decoder with DCT-domain scaling (handles Sony JPEGs)
-- [x] RAW embedded JPEG extraction (ARW) — iterates all SOI/EOI pairs, picks largest valid
-- [x] On-demand generation + pre-generation after scan
-- [x] Bilinear resize (pure stdlib, center crop not stretch)
-- [x] `max-width: 100%` prevents upscaling blur in waterfall layout
+### 缩略图
+- [x] 双层缓存：grid（600px）+ full（2048px）
+- [x] CGO/libjpeg-turbo 解码器 + DCT 域缩放（处理 Sony JPEG）
+- [x] RAW 内嵌 JPEG 提取（ARW）—— 遍历所有 SOI/EOI 对，选取最大有效预览
+- [x] 按需生成 + 扫描后预生成
+- [x] 双线性缩放（纯 stdlib，居中裁剪不拉伸）
+- [x] `max-width: 100%` 防止瀑布流缩略图因放大而模糊
 
 ### API
-- [x] Full REST API: CRUD, rating, labeling, thumbnail serving, scan trigger
-- [x] 12 filter parameters: rating, color_label, camera_model, file_type, focal_length range, aperture range, ISO range, date range, search
-- [x] Pagination with metadata (max limit 10000 for fetch-all)
-- [x] Auto-port switching (up to 10 attempts)
+- [x] 完整 REST API：CRUD、评分、标签、缩略图服务、扫描触发
+- [x] 12 种筛选参数：评分、颜色标签、相机型号、文件类型、焦段范围、光圈范围、ISO 范围、日期范围、搜索
+- [x] 分页 + 元数据（最大 limit 10000 用于全量加载）
+- [x] 自动端口切换（最多 10 次尝试）
 
-### Frontend — Layout
+### 前端 —— 布局
 - [x] Vue 3 Composition API + Pinia + TypeScript
-- [x] Waterfall/masonry layout via CSS columns (responsive: 4→3→2→1 columns)
-- [x] Left sidebar filter panel (220px fixed width)
-- [x] Image preview overlay with EXIF info + rating + color label
-- [x] No pagination — all assets loaded at once, waterfall scroll
+- [x] CSS columns 瀑布流布局（响应式：4→3→2→1 列）
+- [x] 左侧筛选面板（220px 固定宽度）
+- [x] 图片预览浮层（EXIF 信息 + 评分 + 颜色标签）
+- [x] 无分页 —— 一次性加载全部，瀑布流滚动
 
-### Frontend — Filters & Search
-- [x] Search input, rating stars, file type dropdown, camera dropdown
-- [x] Custom dark-themed calendar date range picker (locale-aware weekday headers)
-- [x] Focal length range, aperture range, ISO range (min/max inputs)
-- [x] Color label filter, clear all button
+### 前端 —— 筛选与搜索
+- [x] 搜索输入、评分星级、文件类型下拉、相机下拉
+- [x] 自定义深色主题日历日期范围选择器（本地化星期标题）
+- [x] 焦段范围、光圈范围、ISO 范围（最小/最大输入）
+- [x] 颜色标签筛选、清除按钮
 
-### Frontend — i18n
-- [x] Bilingual support (zh/en) via lightweight composable, no external deps
-- [x] Language toggle button in toolbar (中文/English)
-- [x] locale persisted in localStorage
-- [x] All UI text internationalized: FilterBar, GalleryView, ImageCard, ImagePreview, DateRangePicker
+### 前端 —— 国际化
+- [x] 中英双语支持，轻量级 composable，无外部依赖
+- [x] 工具栏语言切换按钮（中文/English）
+- [x] locale 持久化到 localStorage
+- [x] 所有 UI 文本国际化
 
-### Frontend — Review Mode (审片模式)
-- [x] Preview/Review mode toggle buttons in toolbar
-- [x] Single large image display with left/right navigation arrows
-- [x] EXIF metadata tags: camera model, focal length, aperture, ISO, shutter speed, capture date
-- [x] Rating stars + color labels in info bar
-- [x] Zoom: mouse wheel, +/- buttons, +/- keys (0.1x — 8x)
-- [x] Rotate 90° CW: button + R key
-- [x] Fit screen / 1:1 toggle: button + F key
-- [x] Reset view button
-- [x] Click-drag panning when zoomed in (cursor: grab/grabbing)
-- [x] Pan resets on image switch, fit toggle, and reset
-- [x] EXIF orientation auto-applied as CSS transform (fallback for stale thumbnail cache)
-- [x] Keyboard shortcut hints bar
-- [x] Rating/label changes sync between review mode and store
+### 前端 —— 审片模式
+- [x] 预览/审片模式切换按钮
+- [x] 单张大图显示 + 左右导航箭头
+- [x] EXIF 标签显示：相机型号、焦段、光圈、ISO、快门速度、拍摄日期
+- [x] 信息栏评分星 + 颜色标签
+- [x] 缩放：鼠标滚轮、+/- 按钮、+/- 键（0.1x — 8x）
+- [x] 顺时针旋转 90°：按钮 + R 键
+- [x] 适应屏幕 / 1:1 切换：按钮 + F 键
+- [x] 重置换按钮
+- [x] 放大后拖拽平移（光标：grab/grabbing）
+- [x] 切换图片、切换适配模式、重置时复位平移
+- [x] EXIF 方向通过 CSS transform 自动旋转（缩略图缓存过期的兜底方案）
+- [x] 键盘快捷键提示栏
+- [x] 评分/标签变更同步审片模式与 store
+- [x] JPG/RAW 切换按钮（配对照片可选显示 JPG 或 RAW）
 
-### Frontend — Keyboard Shortcuts
-- [x] 1-5: set rating (works in preview overlay + review mode)
-- [x] 0: clear rating
-- [x] X: toggle red reject label (review mode)
-- [x] Arrow keys: prev/next image (review mode) or overlay navigation
-- [x] R: rotate (review mode)
-- [x] F: fit/1:1 toggle (review mode)
-- [x] +/-: zoom in/out (review mode)
-- [x] Escape: close preview overlay
-- [x] Delete: delete current asset
+### 软删除与回收站
+- [x] `deleted_at DATETIME` 列（NULL = 正常，有值 = 已删除）
+- [x] 预览/审片模式删除 = 软删除（移入回收站）
+- [x] 回收站视图（TrashPanel）：缩略图列表、删除日期
+- [x] 恢复支持 —— 资产回到活跃列表
+- [x] 条件永久删除：全部 / 仅 JPG / 仅 RAW
+- [x] 永久删除时清理物理文件（best-effort os.Remove）
+- [x] 重新扫描恢复已删除资产（ON CONFLICT 时 `deleted_at = NULL`）
+- [x] 列表 API 默认排除已删除；`?trashed=true` 显示已删除
+- [x] clearAll 保持永久删除（完整重置）
+- [x] 工具栏回收站按钮（带数量角标）
 
-### Build & Deployment
-- [x] go:embed single binary (frontend + backend)
-- [x] build.sh script
+### 前端 —— 键盘快捷键
+- [x] 1-5：设置评分（预览浮层 + 审片模式均可用）
+- [x] 0：清除评分
+- [x] X：切换红色 reject 标签（审片模式）
+- [x] 方向键：上一张/下一张（审片模式或浮层导航）
+- [x] R：旋转（审片模式）
+- [x] F：适应/1:1 切换（审片模式）
+- [x] +/-：缩放（审片模式）
+- [x] Escape：关闭预览浮层
+- [x] Delete：删除当前资产
 
-## Pending
+### 构建与部署
+- [x] go:embed 单文件分发（前端 + 后端）
+- [x] build.sh 脚本
 
-### RAW Format Support
-- [ ] CR2 (Canon), CR3 (Canon), NEF (Nikon) embedded JPEG extraction
-- [ ] ARW full-resolution JPEG extraction (currently picks largest valid, could prefer specific IFD)
+## 待实现
 
-### Thumbnails
-- [ ] WebP encoding (currently JPEG quality 85)
-- [ ] Cache eviction / size management
-- [ ] Cache versioning to avoid stale thumbnails after code changes to orientation/resize
+### RAW 格式支持
+- [ ] CR2（Canon）、CR3（Canon）、NEF（Nikon）内嵌 JPEG 提取
+- [ ] ARW 全分辨率 JPEG 提取（目前取最大有效预览，可优先特定 IFD）
 
-### Frontend
-- [ ] Virtual scrolling for 10k+ libraries (currently works with CSS columns, not virtual)
-- [ ] Double-click waterfall image to enter review mode at that position
-- [ ] EXIF filtering: match_status, orientation
-- [ ] i18n for keyboard hint labels ("Rate"/"Zero"/"Reject"/"Rotate"/"Zoom"/"Fit")
+### 缩略图
+- [ ] WebP 编码（目前 JPEG 质量 85）
+- [ ] 缓存淘汰/容量管理
+- [ ] 缓存版本控制，避免代码修改后方向/缩放变更导致过期缩略图
 
-### AI Extension (future)
-- [ ] AI status field on assets (reserved in DB)
-- [ ] Plugin interface for image quality assessment, closed-eye detection, etc.
+### 前端
+- [ ] 万级图库虚拟滚动（目前使用 CSS columns，非虚拟化）
+- [ ] 双击瀑布流图片进入审片模式对应位置
+- [ ] EXIF 筛选：match_status、orientation
+- [ ] 键盘提示标签国际化（"Rate"/"Zero"/"Reject"/"Rotate"/"Zoom"/"Fit"）
+- [ ] 空图库时禁用审片模式按钮
 
-### Operations
-- [ ] SSE / WebSocket for real-time scan progress
-- [ ] Configurable cache directory outside storage/
-- [ ] Image deletion also removes source file (opt-in)
+### AI 扩展（未来）
+- [ ] AI 状态字段（DB 已预留）
+- [ ] 插件接口：画质盲评、闭眼检测等
+
+### 运维
+- [ ] SSE / WebSocket 实时扫描进度（当前使用轮询）
+- [ ] 可配置缓存目录（默认 storage/cache）
+- [ ] 删除图片同时删除源文件（可选开启）

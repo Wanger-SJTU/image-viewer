@@ -67,8 +67,14 @@ type Asset struct {
 	ColorLabel  string      `json:"color_label"`
 	AiStatus    string      `json:"ai_status"`
 	CapturedAt  *time.Time  `json:"captured_at,omitempty"`
+	DeletedAt   *time.Time  `json:"deleted_at,omitempty"`
 	GridThumb   string      `json:"grid_thumb"`
 	FullThumb   string      `json:"full_thumb"`
 	CreatedAt   time.Time   `json:"created_at"`
 	UpdatedAt   time.Time   `json:"updated_at"`
+}
+
+// PurgeRequest specifies which files to permanently delete for a trashed asset.
+type PurgeRequest struct {
+	FileType string `json:"file_type"` // "both", "jpg", "raw"
 }

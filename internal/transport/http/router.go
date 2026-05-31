@@ -33,12 +33,16 @@ func NewRouter(
 		api.POST("/assets/:id/label", h.LabelAsset)
 		api.DELETE("/assets", h.ClearAssets)
 		api.DELETE("/assets/:id", h.DeleteAsset)
+		api.POST("/assets/:id/trash", h.TrashAsset)
+		api.POST("/assets/:id/restore", h.RestoreAsset)
+		api.POST("/assets/:id/purge", h.PurgeAsset)
 
 		api.GET("/thumbs/:id", h.GetThumb)
 
 		api.GET("/filters", h.GetFilterOptions)
 
 		api.POST("/scan", h.StartScan)
+		api.GET("/scan/status", h.ScanStatus)
 	}
 
 	// Serve embedded frontend if available (already Sub'd by caller)

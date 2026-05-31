@@ -98,27 +98,22 @@ func (s *ScannerService) Scan(ctx context.Context, rootPath string, progressCh c
 
 	s.sendProgress(progressCh, PhaseMatching, len(entries), 0, 0, 0, "")
 
-	// Step 2: Match by composite key (dir + basename)
-	type matchKey struct {
-		dir  string
-		base string
-	}
-	groups := make(map[matchKey]*types.Asset)
+	// Step 2: Match by base filename (case-insensitive, cross-directory)
+	groups := make(map[string]*types.Asset)
 
 	for _, e := range entries {
 		ext := strings.ToLower(filepath.Ext(e.name))
 		base := strings.ToLower(strings.TrimSuffix(e.name, filepath.Ext(e.name)))
-		dir := strings.ToLower(filepath.Dir(e.path))
+		dirPath := filepath.Dir(e.path)
 
-		key := matchKey{dir: dir, base: base}
-		asset, exists := groups[key]
+		asset, exists := groups[base]
 		if !exists {
 			asset = &types.Asset{
 				Name:        strings.TrimSuffix(e.name, filepath.Ext(e.name)),
-				DirPath:     filepath.Dir(e.path),
+				DirPath:     dirPath,
 				MatchStatus: types.MatchStatusOrphan,
 			}
-			groups[key] = asset
+			groups[base] = asset
 		}
 
 		mediaType := types.MediaTypeJPG
@@ -138,13 +133,17 @@ func (s *ScannerService) Scan(ctx context.Context, rootPath string, progressCh c
 		}
 
 		if mediaType == types.MediaTypeRAW {
-			asset.RawFile = file
+			if asset.RawFile == nil {
+				asset.RawFile = file
+			}
 		} else {
-			asset.JpgFile = file
+			if asset.JpgFile == nil {
+				asset.JpgFile = file
+			}
 		}
 	}
 
-	// Determine match status — first pass by dir+basename
+	// Step 3: Determine match by filename + capture date
 	matched := 0
 	orphans := 0
 	var assets []*types.Asset
@@ -152,19 +151,54 @@ func (s *ScannerService) Scan(ctx context.Context, rootPath string, progressCh c
 
 	for _, a := range groups {
 		if a.RawFile != nil && a.JpgFile != nil {
-			a.MatchStatus = types.MatchStatusPaired
-			matched++
+			// Verify capture dates match (within 1 second) before pairing
+			rawTime, rawErr := extractCaptureTime(a.RawFile.FilePath)
+			jpgTime, jpgErr := extractCaptureTime(a.JpgFile.FilePath)
+			if rawErr == nil && jpgErr == nil {
+				diff := rawTime.Sub(jpgTime)
+				if diff < 0 {
+					diff = -diff
+				}
+				if diff <= time.Second {
+					a.MatchStatus = types.MatchStatusPaired
+					matched++
+					assets = append(assets, a)
+					continue
+				}
+			}
+			// Dates don't match or EXIF missing — split into separate orphans
+			if a.RawFile != nil {
+				orphan := &types.Asset{
+					Name:        a.Name,
+					DirPath:     filepath.Dir(a.RawFile.FilePath),
+					RawFile:     a.RawFile,
+					MatchStatus: types.MatchStatusOrphan,
+				}
+				raws = append(raws, orphan)
+				orphans++
+			}
+			if a.JpgFile != nil {
+				orphan := &types.Asset{
+					Name:        a.Name,
+					DirPath:     filepath.Dir(a.JpgFile.FilePath),
+					JpgFile:     a.JpgFile,
+					MatchStatus: types.MatchStatusOrphan,
+				}
+				jpgs = append(jpgs, orphan)
+				orphans++
+			}
 		} else if a.RawFile != nil {
 			raws = append(raws, a)
 			orphans++
+			assets = append(assets, a)
 		} else if a.JpgFile != nil {
 			jpgs = append(jpgs, a)
 			orphans++
+			assets = append(assets, a)
 		}
-		assets = append(assets, a)
 	}
 
-	// Second pass: match orphans by capture time (also extracts EXIF for these files)
+	// Step 4: Match remaining orphans by capture time
 	if len(raws) > 0 && len(jpgs) > 0 {
 		rawByTime := make(map[string]*types.Asset)
 		for _, raw := range raws {
@@ -209,7 +243,7 @@ func (s *ScannerService) Scan(ctx context.Context, rootPath string, progressCh c
 
 	s.sendProgress(progressCh, PhaseExif, len(entries), 0, matched, orphans, "")
 
-	// Step 3: Extract EXIF for remaining files that don't have it yet
+	// Step 5: Extract EXIF for remaining files that don't have it yet
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, s.cfg.ConcurrencyLimit)
 	exifCount := 0
@@ -217,7 +251,7 @@ func (s *ScannerService) Scan(ctx context.Context, rootPath string, progressCh c
 	for _, a := range assets {
 		for _, f := range []*types.MediaFile{a.RawFile, a.JpgFile} {
 			if f == nil || f.Exif != nil {
-				continue // already extracted during time-matching
+				continue // already extracted during matching
 			}
 			wg.Add(1)
 			sem <- struct{}{}
@@ -251,7 +285,7 @@ func (s *ScannerService) Scan(ctx context.Context, rootPath string, progressCh c
 
 	s.sendProgress(progressCh, PhaseSaving, len(entries), exifCount, matched, orphans, "")
 
-	// Step 4: Batch insert — files are embedded in assets
+	// Step 6: Batch insert — files are embedded in assets
 	const batchSize = 500
 	for i := 0; i < len(assets); i += batchSize {
 		end := i + batchSize

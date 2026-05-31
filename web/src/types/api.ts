@@ -30,4 +30,5 @@ export interface FilterOptions {
   isos: number[]
   color_labels: string[]
   file_types: string[]
+  photo_dates: string[]
 }

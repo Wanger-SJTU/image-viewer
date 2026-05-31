@@ -10,6 +10,7 @@ import ImagePreview from '../components/ImagePreview.vue'
 import RatingStars from '../components/RatingStars.vue'
 import ColorLabel from '../components/ColorLabel.vue'
 import ScanDialog from '../components/ScanDialog.vue'
+import TrashPanel from '../components/TrashPanel.vue'
 import { useI18n } from '../i18n'
 
 const { t, toggleLocale, localeLabel } = useI18n()
@@ -30,6 +31,16 @@ const dragStartX = ref(0)
 const dragStartY = ref(0)
 const panStartX = ref(0)
 const panStartY = ref(0)
+const reviewFileType = ref<'jpg' | 'raw'>('jpg')
+
+const hasBothFiles = computed(() => {
+  const a = reviewAsset.value
+  return !!(a?.jpg_file && a?.raw_file)
+})
+
+function toggleFileType() {
+  reviewFileType.value = reviewFileType.value === 'jpg' ? 'raw' : 'jpg'
+}
 
 function reviewZoomIn() {
   reviewFitScreen.value = false
@@ -93,12 +104,40 @@ function onReviewMouseUp() {
 // Reset pan when switching images and load full asset detail
 watch(reviewIndex, () => {
   resetPan()
+  reviewFileType.value = 'jpg'
   loadReviewAsset()
 })
 
 // Load full asset when entering review mode
 watch(viewMode, (mode) => {
-  if (mode === 'review') loadReviewAsset()
+  if (mode === 'review') {
+    if (!assetStore.assets.length) {
+      viewMode.value = 'preview'
+      return
+    }
+    if (reviewIndex.value >= assetStore.assets.length) {
+      reviewIndex.value = 0
+    }
+    resetPan()
+    reviewFileType.value = 'jpg'
+    loadReviewAsset()
+  }
+})
+
+// Reset review index when assets change (e.g., filter applied)
+watch(() => assetStore.assets, () => {
+  if (viewMode.value === 'review') {
+    if (!assetStore.assets.length) {
+      viewMode.value = 'preview'
+      return
+    }
+    if (reviewIndex.value >= assetStore.assets.length) {
+      reviewIndex.value = 0
+      resetPan()
+      reviewFileType.value = 'jpg'
+      loadReviewAsset()
+    }
+  }
 })
 
 const reviewAssetBasic = computed(() => assetStore.assets[reviewIndex.value] || null)
@@ -174,7 +213,8 @@ function imgStyle(): Record<string, string> {
 
 function reviewThumbUrl(): string {
   if (!reviewAsset.value) return ''
-  return `/api/v1/thumbs/${reviewAsset.value.id}?size=full`
+  const fileParam = hasBothFiles.value ? `&file=${reviewFileType.value}` : ''
+  return `/api/v1/thumbs/${reviewAsset.value.id}?size=full${fileParam}`
 }
 
 onMounted(() => {
@@ -287,9 +327,20 @@ useKeyboardShortcut(() => ({
   },
   Escape: closePreview,
   Delete: () => {
-    if (previewAsset.value && confirm(t('preview.delete_confirm'))) {
-      assetStore.removeAsset(previewAsset.value.id)
-      closePreview()
+    const a = previewAsset.value || reviewAssetFull.value
+    if (a && confirm(t('preview.delete_confirm'))) {
+      if (previewAsset.value) {
+        assetStore.removeAsset(previewAsset.value.id)
+        closePreview()
+      } else if (viewMode.value === 'review') {
+        assetStore.removeAsset(a.id)
+        // Move to next or exit review if last
+        if (assetStore.assets.length > 1) {
+          reviewNext()
+        } else {
+          viewMode.value = 'preview'
+        }
+      }
     }
   },
 }))
@@ -308,6 +359,22 @@ async function clearAll() {
 function openScan() {
   scanDialog.value?.open()
 }
+
+async function handleRestore(id: number) {
+  await assetStore.restoreTrashedAsset(id)
+}
+
+async function handlePurge(id: number, fileType: 'both' | 'jpg' | 'raw') {
+  await assetStore.purgeTrashedAsset(id, fileType)
+}
+
+function toggleTrash() {
+  assetStore.toggleTrash()
+  // Close preview when entering trash
+  if (assetStore.showTrash) {
+    closePreview()
+  }
+}
 </script>
 
 <template>
@@ -323,6 +390,9 @@ function openScan() {
         <div class="toolbar-left">
           <button class="scan-btn" @click="openScan">{{ t('toolbar.scan') }}</button>
           <button class="clear-btn" @click="clearAll">{{ t('toolbar.clear_all') }}</button>
+          <button class="trash-btn" @click="toggleTrash">
+            {{ assetStore.showTrash ? t('toolbar.close_trash') : t('toolbar.trash', { n: assetStore.trashedTotal }) }}
+          </button>
           <span class="count-info" v-if="assetStore.total">
             {{ t('toolbar.assets', { n: assetStore.total }) }}
           </span>
@@ -334,7 +404,12 @@ function openScan() {
           <button class="mode-btn" :class="{ active: viewMode === 'preview' }" @click="viewMode = 'preview'">
             {{ t('toolbar.preview_mode') }}
           </button>
-          <button class="mode-btn" :class="{ active: viewMode === 'review' }" @click="viewMode = 'review'">
+          <button
+            class="mode-btn"
+            :class="{ active: viewMode === 'review' }"
+            :disabled="!assetStore.assets.length"
+            @click="reviewIndex = 0; viewMode = 'review'"
+          >
             {{ t('toolbar.review_mode') }}
           </button>
           <button class="refresh-btn" @click="assetStore.fetchAssets()">{{ t('toolbar.refresh') }}</button>
@@ -343,8 +418,16 @@ function openScan() {
       </div>
 
       <div class="gallery-content">
+        <TrashPanel
+          v-if="assetStore.showTrash"
+          :assets="assetStore.trashedAssets"
+          :total="assetStore.trashedTotal"
+          @close="toggleTrash"
+          @restore="handleRestore"
+          @purge="handlePurge"
+        />
         <ImageGrid
-          v-if="viewMode === 'preview'"
+          v-else-if="viewMode === 'preview'"
           :assets="assetStore.assets"
           @select="openPreview"
           @rate="(id, r) => assetStore.setRating(id, r)"
@@ -367,6 +450,14 @@ function openScan() {
                   {{ reviewFitScreen ? '1:1' : 'Fit' }}
                 </button>
                 <button title="Reset" @click="reviewReset">Reset</button>
+                <button
+                  v-if="hasBothFiles"
+                  :title="reviewFileType === 'jpg' ? 'Show RAW' : 'Show JPG'"
+                  class="file-type-btn"
+                  @click="toggleFileType"
+                >
+                  {{ reviewFileType === 'jpg' ? 'RAW' : 'JPG' }}
+                </button>
               </div>
             </div>
             <div
@@ -426,6 +517,7 @@ function openScan() {
       @next="goNext"
       @rate="(id, r) => assetStore.setRating(id, r)"
       @label="(id, l) => assetStore.setLabel(id, l)"
+      @openInReview="closePreview(); openReview(previewAsset!)"
     />
 
     <ScanDialog ref="scanDialog" />
@@ -497,6 +589,20 @@ function openScan() {
   background: #777;
 }
 
+.trash-btn {
+  padding: 4px 16px;
+  background: #1a1a2e;
+  color: #ccc;
+  border: 1px solid #0f3460;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.trash-btn:hover {
+  border-color: #e94560;
+}
+
 .refresh-btn {
   padding: 4px 16px;
   background: #1a1a2e;
@@ -537,7 +643,12 @@ function openScan() {
   border-color: #e94560;
 }
 
-.mode-btn:hover:not(.active) {
+.mode-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.mode-btn:hover:not(.active):not(:disabled) {
   color: #ccc;
 }
 
@@ -639,6 +750,11 @@ function openScan() {
   font-size: 0.7rem;
   min-width: 36px;
   text-align: center;
+}
+
+.file-type-btn {
+  color: #e94560 !important;
+  border-color: #e94560 !important;
 }
 
 /* Image area */

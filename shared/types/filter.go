@@ -19,4 +19,5 @@ type AssetFilter struct {
 	CapturedAfter  time.Time `json:"captured_after"`
 	CapturedBefore time.Time `json:"captured_before"`
 	Search         string    `json:"search"`
+	Trashed        *bool     `json:"trashed,omitempty"` // nil=exclude trashed (default), true=only trashed
 }

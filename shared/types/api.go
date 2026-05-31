@@ -69,4 +69,5 @@ type FilterOptions struct {
 	ISOs          []int     `json:"isos"`
 	ColorLabels   []string  `json:"color_labels"`
 	FileTypes     []string  `json:"file_types"`
+	PhotoDates    []string  `json:"photo_dates"`
 }

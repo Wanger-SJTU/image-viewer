@@ -15,6 +15,7 @@ const emit = defineEmits<{
   next: []
   rate: [id: number, rating: number]
   label: [id: number, label: string]
+  openInReview: []
 }>()
 
 function thumbUrl(id: number, size: string): string {
@@ -55,6 +56,7 @@ const matchClass = computed(() => {
         <button class="nav-btn next" @click="emit('next')">&rsaquo;</button>
         <button class="close-btn" @click="emit('close')">&times;</button>
 
+        <button class="open-review-btn" @click="emit('openInReview')">{{ t('preview.open_in_review') }}</button>
         <div class="match-badge">{{ matchLabel }}</div>
 
         <div class="preview-image">
@@ -144,6 +146,24 @@ const matchClass = computed(() => {
   font-size: 2rem;
   cursor: pointer;
   z-index: 2;
+}
+
+.open-review-btn {
+  position: absolute;
+  top: -40px;
+  right: 120px;
+  background: #e94560;
+  border: none;
+  color: #fff;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.open-review-btn:hover {
+  background: #c73e54;
 }
 
 .match-badge {

@@ -19,7 +19,10 @@ type AssetRepository interface {
 	UpdateColorLabel(ctx context.Context, id int64, label string) error
 	UpdateThumbnails(ctx context.Context, id int64, gridThumb, fullThumb string) error
 	Delete(ctx context.Context, id int64) ([]string, error) // returns file paths to clean up
-	DeleteAll(ctx context.Context) (int64, error)            // returns count of deleted assets
+	DeleteAll(ctx context.Context) (int64, error)           // returns count of deleted assets
+	SoftDelete(ctx context.Context, id int64) error
+	Restore(ctx context.Context, id int64) error
+	Purge(ctx context.Context, id int64, fileType string) ([]string, error) // returns file paths to clean up
 	ExistsByDirName(ctx context.Context, dirPath, name string) (bool, int64, error)
 	FindAllIDs(ctx context.Context) ([]int64, error)
 	GetFilterOptions(ctx context.Context) (*types.FilterOptions, error)
@@ -48,7 +51,8 @@ func (r *assetRepo) BulkUpsert(ctx context.Context, assets []*types.Asset, files
 		ON CONFLICT(dir_path, name) DO UPDATE SET
 			match_status = excluded.match_status,
 			captured_at = COALESCE(excluded.captured_at, assets.captured_at),
-			updated_at = excluded.updated_at
+			updated_at = excluded.updated_at,
+			deleted_at = NULL
 	`)
 	if err != nil {
 		return fmt.Errorf("prepare asset stmt: %w", err)
@@ -151,13 +155,14 @@ func (r *assetRepo) insertMediaFile(ctx context.Context, stmt *sql.Stmt, f *type
 func (r *assetRepo) FindByID(ctx context.Context, id int64) (*types.Asset, error) {
 	asset := &types.Asset{}
 	var capturedAt sql.NullString
+	var deletedAt sql.NullString
 	err := r.db.QueryRowContext(ctx, `
 		SELECT id, name, dir_path, match_status, rating, color_label, ai_status,
-			grid_thumb, full_thumb, captured_at, created_at, updated_at
+			grid_thumb, full_thumb, captured_at, deleted_at, created_at, updated_at
 		FROM assets WHERE id = ?`, id).Scan(
 		&asset.ID, &asset.Name, &asset.DirPath, &asset.MatchStatus,
 		&asset.Rating, &asset.ColorLabel, &asset.AiStatus,
-		&asset.GridThumb, &asset.FullThumb, &capturedAt,
+		&asset.GridThumb, &asset.FullThumb, &capturedAt, &deletedAt,
 		&asset.CreatedAt, &asset.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
@@ -169,6 +174,10 @@ func (r *assetRepo) FindByID(ctx context.Context, id int64) (*types.Asset, error
 	if capturedAt.Valid {
 		t, _ := time.Parse(time.RFC3339, capturedAt.String)
 		asset.CapturedAt = &t
+	}
+	if deletedAt.Valid {
+		t, _ := time.Parse(time.RFC3339, deletedAt.String)
+		asset.DeletedAt = &t
 	}
 
 	files, err := r.findMediaFiles(ctx, id)
@@ -196,7 +205,7 @@ func (r *assetRepo) findMediaFiles(ctx context.Context, assetID int64) ([]*types
 	}
 	defer rows.Close()
 
-	var files []*types.MediaFile
+	files := make([]*types.MediaFile, 0)
 	for rows.Next() {
 		f := &types.MediaFile{Exif: &types.ExifMeta{}}
 		var capturedAt sql.NullString
@@ -287,6 +296,18 @@ func (r *assetRepo) List(ctx context.Context, filter *types.AssetFilter, page, l
 			conditions = append(conditions, "a.name LIKE ?")
 			args = append(args, "%"+filter.Search+"%")
 		}
+		if filter.Trashed != nil {
+			if *filter.Trashed {
+				conditions = append(conditions, "a.deleted_at IS NOT NULL")
+			} else {
+				conditions = append(conditions, "a.deleted_at IS NULL")
+			}
+		}
+	}
+
+	// By default, exclude trashed assets
+	if filter == nil || filter.Trashed == nil {
+		conditions = append(conditions, "a.deleted_at IS NULL")
 	}
 
 	whereClause := ""
@@ -305,10 +326,10 @@ func (r *assetRepo) List(ctx context.Context, filter *types.AssetFilter, page, l
 	offset := (page - 1) * limit
 	query := fmt.Sprintf(`
 		SELECT a.id, a.name, a.dir_path, a.match_status, a.rating, a.color_label,
-			a.ai_status, a.grid_thumb, a.full_thumb, a.captured_at, a.created_at, a.updated_at,
+			a.ai_status, a.grid_thumb, a.full_thumb, a.captured_at, a.deleted_at, a.created_at, a.updated_at,
 			(SELECT COUNT(*) FROM media_files m WHERE m.asset_id = a.id AND m.media_type = 'raw') AS has_raw,
 			(SELECT COUNT(*) FROM media_files m WHERE m.asset_id = a.id AND m.media_type = 'jpg') AS has_jpg
-		FROM assets a %s ORDER BY a.captured_at DESC, a.name ASC LIMIT ? OFFSET ?`, whereClause)
+		FROM assets a %s ORDER BY a.captured_at ASC, a.name ASC LIMIT ? OFFSET ?`, whereClause)
 	queryArgs := append(args, limit, offset)
 
 	rows, err := r.db.QueryContext(ctx, query, queryArgs...)
@@ -317,13 +338,14 @@ func (r *assetRepo) List(ctx context.Context, filter *types.AssetFilter, page, l
 	}
 	defer rows.Close()
 
-	var assets []*types.Asset
+	assets := make([]*types.Asset, 0)
 	for rows.Next() {
 		a := &types.Asset{}
 		var capturedAt sql.NullString
+		var deletedAt sql.NullString
 		var hasRaw, hasJpg int
 		err := rows.Scan(&a.ID, &a.Name, &a.DirPath, &a.MatchStatus, &a.Rating, &a.ColorLabel,
-			&a.AiStatus, &a.GridThumb, &a.FullThumb, &capturedAt, &a.CreatedAt, &a.UpdatedAt,
+			&a.AiStatus, &a.GridThumb, &a.FullThumb, &capturedAt, &deletedAt, &a.CreatedAt, &a.UpdatedAt,
 			&hasRaw, &hasJpg)
 		if err != nil {
 			return nil, 0, fmt.Errorf("scan asset: %w", err)
@@ -331,6 +353,10 @@ func (r *assetRepo) List(ctx context.Context, filter *types.AssetFilter, page, l
 		if capturedAt.Valid {
 			t, _ := time.Parse(time.RFC3339, capturedAt.String)
 			a.CapturedAt = &t
+		}
+		if deletedAt.Valid {
+			t, _ := time.Parse(time.RFC3339, deletedAt.String)
+			a.DeletedAt = &t
 		}
 		if hasRaw > 0 {
 			a.RawFile = &types.MediaFile{}
@@ -407,6 +433,90 @@ func (r *assetRepo) DeleteAll(ctx context.Context) (int64, error) {
 	return count, nil
 }
 
+// SoftDelete marks an asset as trashed by setting deleted_at.
+func (r *assetRepo) SoftDelete(ctx context.Context, id int64) error {
+	res, err := r.db.ExecContext(ctx, `UPDATE assets SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL`,
+		time.Now(), time.Now(), id)
+	if err != nil {
+		return fmt.Errorf("soft delete asset %d: %w", id, err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("asset %d not found or already trashed", id)
+	}
+	return nil
+}
+
+// Restore clears the deleted_at timestamp on an asset.
+func (r *assetRepo) Restore(ctx context.Context, id int64) error {
+	res, err := r.db.ExecContext(ctx, `UPDATE assets SET deleted_at = NULL, updated_at = ? WHERE id = ? AND deleted_at IS NOT NULL`,
+		time.Now(), id)
+	if err != nil {
+		return fmt.Errorf("restore asset %d: %w", id, err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("asset %d not found or not trashed", id)
+	}
+	return nil
+}
+
+// Purge permanently deletes specific media files or the entire asset.
+// fileType: "both" deletes the whole asset, "jpg" or "raw" deletes only that file.
+// Returns the file paths to clean up from disk.
+func (r *assetRepo) Purge(ctx context.Context, id int64, fileType string) ([]string, error) {
+	switch fileType {
+	case "both", "":
+		// Full permanent delete — CASCADE removes media_files
+		return r.Delete(ctx, id)
+	case "jpg", "raw":
+		// Delete only the specified media file type
+		rows, err := r.db.QueryContext(ctx, `SELECT file_path FROM media_files WHERE asset_id = ? AND media_type = ?`, id, fileType)
+		if err != nil {
+			return nil, fmt.Errorf("query file paths: %w", err)
+		}
+		defer rows.Close()
+
+		var paths []string
+		for rows.Next() {
+			var p string
+			if err := rows.Scan(&p); err != nil {
+				return nil, err
+			}
+			paths = append(paths, p)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+
+		_, err = r.db.ExecContext(ctx, `DELETE FROM media_files WHERE asset_id = ? AND media_type = ?`, id, fileType)
+		if err != nil {
+			return nil, fmt.Errorf("delete media_files: %w", err)
+		}
+
+		// Update match_status: if only one file type remains, asset becomes orphan
+		var remainingCount int
+		if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM media_files WHERE asset_id = ?`, id).Scan(&remainingCount); err != nil {
+			return nil, fmt.Errorf("check remaining files: %w", err)
+		}
+		if remainingCount == 0 {
+			// No files left — delete the asset row
+			_, err = r.db.ExecContext(ctx, `DELETE FROM assets WHERE id = ?`, id)
+			if err != nil {
+				return nil, fmt.Errorf("delete empty asset: %w", err)
+			}
+		} else {
+			_, err = r.db.ExecContext(ctx, `UPDATE assets SET match_status = 'orphan', updated_at = ? WHERE id = ?`, time.Now(), id)
+			if err != nil {
+				return nil, fmt.Errorf("update match_status: %w", err)
+			}
+		}
+		return paths, nil
+	default:
+		return nil, fmt.Errorf("invalid file_type: %s (must be both, jpg, or raw)", fileType)
+	}
+}
+
 // ExistsByDirName checks if an asset already exists for the given directory and base name.
 func (r *assetRepo) ExistsByDirName(ctx context.Context, dirPath, name string) (bool, int64, error) {
 	var id int64
@@ -421,7 +531,7 @@ func (r *assetRepo) ExistsByDirName(ctx context.Context, dirPath, name string) (
 }
 
 func (r *assetRepo) FindAllIDs(ctx context.Context) ([]int64, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id FROM assets ORDER BY id`)
+	rows, err := r.db.QueryContext(ctx, `SELECT id FROM assets WHERE deleted_at IS NULL ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -441,8 +551,13 @@ func (r *assetRepo) FindAllIDs(ctx context.Context) ([]int64, error) {
 // GetFilterOptions returns distinct values for filter dropdowns.
 func (r *assetRepo) GetFilterOptions(ctx context.Context) (*types.FilterOptions, error) {
 	opts := &types.FilterOptions{
-		ColorLabels: []string{"red", "orange", "yellow", "green", "blue", "purple"},
-		FileTypes:   []string{"jpg", "raw", "both"},
+		CameraModels: []string{},
+		FocalLengths: []float64{},
+		Apertures:    []float64{},
+		ISOs:         []int{},
+		ColorLabels:  []string{"red", "orange", "yellow", "green", "blue", "purple"},
+		FileTypes:    []string{"jpg", "raw", "both"},
+		PhotoDates:   []string{},
 	}
 
 	// Camera models
@@ -493,6 +608,17 @@ func (r *assetRepo) GetFilterOptions(ctx context.Context) (*types.FilterOptions,
 		}
 	}
 
+	// Photo dates (distinct dates, sorted)
+	rows5, err := r.db.QueryContext(ctx, `SELECT DISTINCT date(captured_at) FROM assets WHERE captured_at IS NOT NULL AND deleted_at IS NULL ORDER BY date(captured_at)`)
+	if err == nil {
+		defer rows5.Close()
+		for rows5.Next() {
+			var s string
+			if rows5.Scan(&s) == nil {
+				opts.PhotoDates = append(opts.PhotoDates, s)
+			}
+		}
+	}
 	return opts, nil
 }
 

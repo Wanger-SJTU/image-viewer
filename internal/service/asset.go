@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"image-viewer/internal/config"
 	"image-viewer/shared/types"
@@ -19,6 +20,9 @@ type assetRepo interface {
 	UpdateThumbnails(ctx context.Context, id int64, gridThumb, fullThumb string) error
 	Delete(ctx context.Context, id int64) ([]string, error)
 	DeleteAll(ctx context.Context) (int64, error)
+	SoftDelete(ctx context.Context, id int64) error
+	Restore(ctx context.Context, id int64) error
+	Purge(ctx context.Context, id int64, fileType string) ([]string, error)
 	GetFilterOptions(ctx context.Context) (*types.FilterOptions, error)
 }
 
@@ -59,10 +63,36 @@ func (s *AssetService) Label(ctx context.Context, id int64, label string) error 
 	return s.repo.UpdateColorLabel(ctx, id, label)
 }
 
-// Delete removes an asset and returns the file paths for cleanup.
+// Delete soft-deletes an asset (moves to trash). Use Purge for permanent deletion.
 func (s *AssetService) Delete(ctx context.Context, id int64) error {
-	_, err := s.repo.Delete(ctx, id)
-	return err
+	return s.repo.SoftDelete(ctx, id)
+}
+
+// Trash is an alias for Delete (moves asset to trash).
+func (s *AssetService) Trash(ctx context.Context, id int64) error {
+	return s.repo.SoftDelete(ctx, id)
+}
+
+// Restore moves a trashed asset back to active.
+func (s *AssetService) Restore(ctx context.Context, id int64) error {
+	return s.repo.Restore(ctx, id)
+}
+
+// Purge permanently deletes an asset or specific file types, returning file paths for cleanup.
+func (s *AssetService) Purge(ctx context.Context, id int64, fileType string) ([]string, error) {
+	return s.repo.Purge(ctx, id, fileType)
+}
+
+// PurgeWithCleanup permanently deletes and removes physical files from disk.
+func (s *AssetService) PurgeWithCleanup(ctx context.Context, id int64, fileType string) error {
+	paths, err := s.repo.Purge(ctx, id, fileType)
+	if err != nil {
+		return err
+	}
+	for _, p := range paths {
+		os.Remove(p)
+	}
+	return nil
 }
 
 // ClearAll removes all assets from the database.

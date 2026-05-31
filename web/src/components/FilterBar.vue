@@ -24,6 +24,7 @@ const options = ref<FilterOptions>({
   isos: [],
   color_labels: [],
   file_types: ['jpg', 'raw', 'both'],
+  photo_dates: [],
 })
 
 onMounted(async () => {
@@ -111,6 +112,7 @@ function clearAll() {
       <DateRangePicker
         :date-after="filter.captured_after"
         :date-before="filter.captured_before"
+        :photo-dates="options.photo_dates"
         @update="(range) => updateFilter(range)"
       />
     </div>
