@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import type { Asset } from '../types/asset'
 import { useAssetStore } from '../stores/assets'
 import { useKeyboardShortcut } from '../composables/useKeyboardShortcut'
@@ -23,6 +23,13 @@ const reviewIndex = ref(0)
 const reviewScale = ref(1)
 const reviewRotation = ref(0)
 const reviewFitScreen = ref(true)
+const reviewPanX = ref(0)
+const reviewPanY = ref(0)
+const isDragging = ref(false)
+const dragStartX = ref(0)
+const dragStartY = ref(0)
+const panStartX = ref(0)
+const panStartY = ref(0)
 
 function reviewZoomIn() {
   reviewFitScreen.value = false
@@ -38,16 +45,23 @@ function reviewRotate() {
   reviewRotation.value = (reviewRotation.value + 90) % 360
 }
 
+function resetPan() {
+  reviewPanX.value = 0
+  reviewPanY.value = 0
+}
+
 function reviewReset() {
   reviewScale.value = 1
   reviewRotation.value = 0
   reviewFitScreen.value = true
+  resetPan()
 }
 
 function reviewToggleFit() {
   reviewFitScreen.value = !reviewFitScreen.value
   if (reviewFitScreen.value) {
     reviewScale.value = 1
+    resetPan()
   }
 }
 
@@ -56,6 +70,28 @@ function onReviewWheel(e: WheelEvent) {
   if (e.deltaY < 0) reviewZoomIn()
   else reviewZoomOut()
 }
+
+function onReviewMouseDown(e: MouseEvent) {
+  if (reviewScale.value <= 1) return
+  isDragging.value = true
+  dragStartX.value = e.clientX
+  dragStartY.value = e.clientY
+  panStartX.value = reviewPanX.value
+  panStartY.value = reviewPanY.value
+}
+
+function onReviewMouseMove(e: MouseEvent) {
+  if (!isDragging.value) return
+  reviewPanX.value = panStartX.value + (e.clientX - dragStartX.value)
+  reviewPanY.value = panStartY.value + (e.clientY - dragStartY.value)
+}
+
+function onReviewMouseUp() {
+  isDragging.value = false
+}
+
+// Reset pan when switching images
+watch(reviewIndex, () => resetPan())
 
 const reviewAsset = computed(() => assetStore.assets[reviewIndex.value] || null)
 
@@ -66,12 +102,16 @@ const reviewExif = computed(() => {
 
 function imgStyle(): Record<string, string> {
   const t: string[] = []
+  if (reviewPanX.value !== 0 || reviewPanY.value !== 0) {
+    t.push(`translate(${reviewPanX.value}px, ${reviewPanY.value}px)`)
+  }
   if (reviewRotation.value !== 0) t.push(`rotate(${reviewRotation.value}deg)`)
   if (!reviewFitScreen.value) t.push(`scale(${reviewScale.value})`)
+  const cursor = isDragging.value ? 'grabbing' : reviewScale.value > 1 ? 'grab' : 'default'
   return {
     transform: t.length > 0 ? t.join(' ') : 'none',
-    transition: 'transform 0.2s',
-    cursor: reviewScale.value > 1 ? 'grab' : 'default',
+    transition: isDragging.value ? 'none' : 'transform 0.15s',
+    cursor,
   }
 }
 
@@ -253,7 +293,7 @@ function openScan() {
           <div class="review-nav review-prev" @click="reviewPrev">
             <span>&lsaquo;</span>
           </div>
-          <div class="review-main" @wheel="onReviewWheel">
+          <div class="review-main">
             <div class="review-top-bar">
               <span class="review-filename">{{ reviewAsset?.name }}</span>
               <span class="review-index">{{ reviewIndex + 1 }} / {{ assetStore.assets.length }}</span>
@@ -268,13 +308,21 @@ function openScan() {
                 <button title="Reset" @click="reviewReset">Reset</button>
               </div>
             </div>
-            <div class="review-image-wrap">
+            <div
+              class="review-image-wrap"
+              @wheel="onReviewWheel"
+              @mousedown="onReviewMouseDown"
+              @mousemove="onReviewMouseMove"
+              @mouseup="onReviewMouseUp"
+              @mouseleave="onReviewMouseUp"
+            >
               <img
                 :key="reviewAsset?.id"
                 :src="reviewThumbUrl()"
                 :alt="reviewAsset?.name"
                 :style="imgStyle()"
                 class="review-img"
+                draggable="false"
               />
             </div>
             <div class="review-info-bar">
