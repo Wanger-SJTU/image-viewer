@@ -90,10 +90,44 @@ function onReviewMouseUp() {
   isDragging.value = false
 }
 
-// Reset pan when switching images
-watch(reviewIndex, () => resetPan())
+// Reset pan when switching images and load full asset detail
+watch(reviewIndex, () => {
+  resetPan()
+  loadReviewAsset()
+})
 
-const reviewAsset = computed(() => assetStore.assets[reviewIndex.value] || null)
+// Load full asset when entering review mode
+watch(viewMode, (mode) => {
+  if (mode === 'review') loadReviewAsset()
+})
+
+const reviewAssetBasic = computed(() => assetStore.assets[reviewIndex.value] || null)
+
+// Full asset detail (with EXIF) loaded on demand for review mode
+const reviewAssetFull = ref<Asset | null>(null)
+
+async function loadReviewAsset() {
+  const basic = reviewAssetBasic.value
+  if (!basic) {
+    reviewAssetFull.value = null
+    return
+  }
+  try {
+    reviewAssetFull.value = await getAsset(basic.id)
+  } catch {
+    reviewAssetFull.value = basic
+  }
+}
+
+// Keep the full asset in sync with what's stored (rating/label changes)
+function syncReviewAsset(id: number, rating?: number, label?: string) {
+  if (reviewAssetFull.value?.id === id) {
+    if (rating !== undefined) reviewAssetFull.value.rating = rating
+    if (label !== undefined) reviewAssetFull.value.color_label = label as Asset['color_label']
+  }
+}
+
+const reviewAsset = computed(() => reviewAssetFull.value || reviewAssetBasic.value)
 
 const reviewExif = computed(() => {
   const mf = reviewAsset.value?.jpg_file || reviewAsset.value?.raw_file
@@ -175,33 +209,37 @@ function reviewNext() {
 
 useKeyboardShortcut(() => ({
   '1': () => {
-    const a = previewAsset.value || assetStore.assets[reviewIndex.value]
-    if (a) assetStore.setRating(a.id, 1)
+    const a = previewAsset.value || reviewAssetFull.value
+    if (a) { assetStore.setRating(a.id, 1); syncReviewAsset(a.id, 1) }
   },
   '2': () => {
-    const a = previewAsset.value || assetStore.assets[reviewIndex.value]
-    if (a) assetStore.setRating(a.id, 2)
+    const a = previewAsset.value || reviewAssetFull.value
+    if (a) { assetStore.setRating(a.id, 2); syncReviewAsset(a.id, 2) }
   },
   '3': () => {
-    const a = previewAsset.value || assetStore.assets[reviewIndex.value]
-    if (a) assetStore.setRating(a.id, 3)
+    const a = previewAsset.value || reviewAssetFull.value
+    if (a) { assetStore.setRating(a.id, 3); syncReviewAsset(a.id, 3) }
   },
   '4': () => {
-    const a = previewAsset.value || assetStore.assets[reviewIndex.value]
-    if (a) assetStore.setRating(a.id, 4)
+    const a = previewAsset.value || reviewAssetFull.value
+    if (a) { assetStore.setRating(a.id, 4); syncReviewAsset(a.id, 4) }
   },
   '5': () => {
-    const a = previewAsset.value || assetStore.assets[reviewIndex.value]
-    if (a) assetStore.setRating(a.id, 5)
+    const a = previewAsset.value || reviewAssetFull.value
+    if (a) { assetStore.setRating(a.id, 5); syncReviewAsset(a.id, 5) }
   },
   '0': () => {
-    const a = previewAsset.value || assetStore.assets[reviewIndex.value]
-    if (a) assetStore.setRating(a.id, 0)
+    const a = previewAsset.value || reviewAssetFull.value
+    if (a) { assetStore.setRating(a.id, 0); syncReviewAsset(a.id, 0) }
   },
   x: () => {
     if (viewMode.value === 'review') {
-      const a = assetStore.assets[reviewIndex.value]
-      if (a) assetStore.setLabel(a.id, a.color_label === 'red' ? '' : 'red')
+      const a = reviewAssetFull.value
+      if (a) {
+        const newLabel = a.color_label === 'red' ? '' : 'red'
+        assetStore.setLabel(a.id, newLabel)
+        syncReviewAsset(a.id, undefined, newLabel)
+      }
     }
   },
   f: () => {
@@ -335,8 +373,8 @@ function openScan() {
                 <span v-if="reviewExif?.captured_at" class="exif-tag">{{ reviewExif.captured_at }}</span>
               </div>
               <div class="review-info-right">
-                <RatingStars v-if="reviewAsset" :rating="reviewAsset.rating" @rate="(r: number) => assetStore.setRating(reviewAsset!.id, r)" />
-                <ColorLabel v-if="reviewAsset" :color-label="reviewAsset.color_label" @select="(l: string) => assetStore.setLabel(reviewAsset!.id, l)" />
+                <RatingStars v-if="reviewAsset" :rating="reviewAsset.rating" @rate="(r: number) => { assetStore.setRating(reviewAsset!.id, r); syncReviewAsset(reviewAsset!.id, r) }" />
+                <ColorLabel v-if="reviewAsset" :color-label="reviewAsset.color_label" @select="(l: string) => { assetStore.setLabel(reviewAsset!.id, l); syncReviewAsset(reviewAsset!.id, undefined, l) }" />
               </div>
             </div>
             <div class="review-key-hints">
