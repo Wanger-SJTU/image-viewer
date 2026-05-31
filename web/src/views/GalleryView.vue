@@ -134,16 +134,39 @@ const reviewExif = computed(() => {
   return mf?.exif || null
 })
 
+// Convert EXIF orientation (1-8) to base rotation angle and flip
+// This is needed because cached thumbnails may predate the backend orientation fix.
+function exifBaseAngle(): { angle: number; flipX: boolean; flipY: boolean } {
+  const o = reviewExif.value?.orientation || 1
+  switch (o) {
+    case 2: return { angle: 0, flipX: true, flipY: false }
+    case 3: return { angle: 180, flipX: false, flipY: false }
+    case 4: return { angle: 0, flipX: false, flipY: true }
+    case 5: return { angle: 270, flipX: true, flipY: false }
+    case 6: return { angle: 90, flipX: false, flipY: false }
+    case 7: return { angle: 90, flipX: true, flipY: false }
+    case 8: return { angle: 270, flipX: false, flipY: false }
+    default: return { angle: 0, flipX: false, flipY: false }
+  }
+}
+
 function imgStyle(): Record<string, string> {
+  const base = exifBaseAngle()
+  const totalAngle = base.angle + reviewRotation.value
   const t: string[] = []
+  // CSS applies right-to-left: flip first, then rotate, then scale, then translate
   if (reviewPanX.value !== 0 || reviewPanY.value !== 0) {
     t.push(`translate(${reviewPanX.value}px, ${reviewPanY.value}px)`)
   }
-  if (reviewRotation.value !== 0) t.push(`rotate(${reviewRotation.value}deg)`)
   if (!reviewFitScreen.value) t.push(`scale(${reviewScale.value})`)
+  if (totalAngle !== 0) t.push(`rotate(${totalAngle}deg)`)
+  if (base.flipX || base.flipY) {
+    t.push(`scale(${base.flipX ? -1 : 1}, ${base.flipY ? -1 : 1})`)
+  }
   const cursor = isDragging.value ? 'grabbing' : reviewScale.value > 1 ? 'grab' : 'default'
   return {
     transform: t.length > 0 ? t.join(' ') : 'none',
+    transformOrigin: 'center center',
     transition: isDragging.value ? 'none' : 'transform 0.15s',
     cursor,
   }
