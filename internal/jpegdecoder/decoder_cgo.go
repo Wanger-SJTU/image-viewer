@@ -1,3 +1,5 @@
+//go:build !nolibjpeg
+
 package jpegdecoder
 
 /*

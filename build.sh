@@ -37,13 +37,13 @@ echo ""
 echo "[3/3] Building Windows..."
 
 if command -v x86_64-w64-mingw32-gcc &>/dev/null; then
-    echo "  desktop mode..."
-    CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ \
+    echo "  server mode (nolibjpeg: pure Go JPEG fallback)..."
+    CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc \
         GOOS=windows GOARCH=amd64 \
-        go build -tags desktop -ldflags="-s -w -H windowsgui" -o build/viewer.exe .
+        go build -tags nolibjpeg -ldflags="-s -w" -o build/viewer.exe .
 else
     echo "  skipping (mingw-w64 not found)"
-    echo "  HINT: sudo apt install gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64"
+    echo "  HINT: sudo apt install gcc-mingw-w64-x86-64"
 fi
 echo "  -> build/viewer.exe"
 
