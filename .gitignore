@@ -4,6 +4,7 @@ CLAUDE.local.md
 
 # Build output
 /viewer
+/build/
 /web/dist/
 
 # Node
