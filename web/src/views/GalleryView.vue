@@ -103,6 +103,9 @@ function onReviewMouseUp() {
 
 // Reset pan when switching images and load full asset detail
 watch(reviewIndex, () => {
+  reviewScale.value = 1
+  reviewRotation.value = 0
+  reviewFitScreen.value = true
   resetPan()
   reviewFileType.value = 'jpg'
   loadReviewAsset()
@@ -173,35 +176,15 @@ const reviewExif = computed(() => {
   return mf?.exif || null
 })
 
-// Convert EXIF orientation (1-8) to base rotation angle and flip
-// This is needed because cached thumbnails may predate the backend orientation fix.
-function exifBaseAngle(): { angle: number; flipX: boolean; flipY: boolean } {
-  const o = reviewExif.value?.orientation || 1
-  switch (o) {
-    case 2: return { angle: 0, flipX: true, flipY: false }
-    case 3: return { angle: 180, flipX: false, flipY: false }
-    case 4: return { angle: 0, flipX: false, flipY: true }
-    case 5: return { angle: 270, flipX: true, flipY: false }
-    case 6: return { angle: 90, flipX: false, flipY: false }
-    case 7: return { angle: 90, flipX: true, flipY: false }
-    case 8: return { angle: 270, flipX: false, flipY: false }
-    default: return { angle: 0, flipX: false, flipY: false }
-  }
-}
-
 function imgStyle(): Record<string, string> {
-  const base = exifBaseAngle()
-  const totalAngle = base.angle + reviewRotation.value
+  const totalAngle = reviewRotation.value
   const t: string[] = []
-  // CSS applies right-to-left: flip first, then rotate, then scale, then translate
+  // CSS applies right-to-left: rotate, then scale, then translate
   if (reviewPanX.value !== 0 || reviewPanY.value !== 0) {
     t.push(`translate(${reviewPanX.value}px, ${reviewPanY.value}px)`)
   }
   if (!reviewFitScreen.value) t.push(`scale(${reviewScale.value})`)
   if (totalAngle !== 0) t.push(`rotate(${totalAngle}deg)`)
-  if (base.flipX || base.flipY) {
-    t.push(`scale(${base.flipX ? -1 : 1}, ${base.flipY ? -1 : 1})`)
-  }
   const cursor = isDragging.value ? 'grabbing' : reviewScale.value > 1 ? 'grab' : 'default'
   return {
     transform: t.length > 0 ? t.join(' ') : 'none',
@@ -260,6 +243,13 @@ async function goNext() {
 function openReview(asset: Asset) {
   reviewIndex.value = assetStore.assets.findIndex((a) => a.id === asset.id)
   viewMode.value = 'review'
+}
+
+function jumpToReview() {
+  const asset = previewAsset.value
+  if (!asset) return
+  closePreview()
+  openReview(asset)
 }
 
 function reviewPrev() {
@@ -517,7 +507,7 @@ function toggleTrash() {
       @next="goNext"
       @rate="(id, r) => assetStore.setRating(id, r)"
       @label="(id, l) => assetStore.setLabel(id, l)"
-      @openInReview="closePreview(); openReview(previewAsset!)"
+      @openInReview="jumpToReview()"
     />
 
     <ScanDialog ref="scanDialog" />
@@ -765,13 +755,13 @@ function toggleTrash() {
   justify-content: center;
   overflow: hidden;
   padding: 8px;
+  min-height: 0;
 }
 
 .review-img {
-  max-width: 100%;
-  max-height: 100%;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
-  border-radius: 4px;
 }
 
 /* Info bar: EXIF + rating */

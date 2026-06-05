@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 	"errors"
+	"flag"
 	"fmt"
 	"io/fs"
 	"log"
@@ -10,6 +11,7 @@ import (
 	"syscall"
 
 	"image-viewer/internal/config"
+	"image-viewer/internal/desktop"
 	"image-viewer/internal/repository"
 	"image-viewer/internal/service"
 	httptransport "image-viewer/internal/transport/http"
@@ -19,6 +21,9 @@ import (
 var webDist embed.FS
 
 func main() {
+	desktopMode := flag.Bool("desktop", false, "Run as standalone desktop app (requires -tags desktop build)")
+	flag.Parse()
+
 	cfg := config.Load()
 
 	log.Printf("Image Viewer starting...")
@@ -53,20 +58,28 @@ func main() {
 	// Setup router
 	router := httptransport.NewRouter(assetSvc, scannerSvc, thumbSvc, distFS)
 
-	// Try ports starting from cfg.Port, auto-increment if bind fails
-	port := cfg.Port
+	if *desktopMode {
+		desktop.Run(router, cfg.Port)
+		return
+	}
+
+	// Server mode — bind to all interfaces
+	startServer(router, cfg.Port)
+}
+
+func startServer(handler http.Handler, startPort int) {
 	const maxAttempts = 10
-	var lnErr error
+	port := startPort
 	for attempts := 0; attempts < maxAttempts; attempts++ {
-		addr := fmt.Sprintf(":%d", port)
-		log.Printf("Listening on http://localhost%s", addr)
-		if lnErr = http.ListenAndServe(addr, router); lnErr != nil {
-			if isAddrInUse(lnErr) && attempts < maxAttempts-1 {
+		addr := fmt.Sprintf("0.0.0.0:%d", port)
+		log.Printf("Listening on http://%s", addr)
+		if err := http.ListenAndServe(addr, handler); err != nil {
+			if isAddrInUse(err) && attempts < maxAttempts-1 {
 				log.Printf("Port %d is in use, trying port %d...", port, port+1)
 				port++
 				continue
 			}
-			log.Fatalf("Server error: %v", lnErr)
+			log.Fatalf("Server error: %v", err)
 		}
 		break
 	}
