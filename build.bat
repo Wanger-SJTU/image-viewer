@@ -12,13 +12,14 @@ if exist web (
     echo   (web/ directory not found, skipping)
 )
 
-echo.
 if not exist build mkdir build
 
+echo.
 echo [2/2] Building viewer.exe (standalone desktop app)...
 go build -tags desktop -ldflags="-s -w -H windowsgui" -o build\viewer.exe .
 
 echo.
-echo === Build complete: build\viewer.exe ===
-echo Double-click viewer.exe to run the standalone desktop app.
+echo === Build complete ===
+echo build\viewer.exe
+echo Double-click to run the standalone desktop app.
 pause
